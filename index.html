@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verpa Support Desk</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="shortcut icon" href="favicon.png" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+
+  <!-- App stylesheet -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- ============================================================
+  Verpa Support Desk  —  SharePoint / Azure AD versie (MSAL.js + Microsoft Graph)
+  ============================================================
+  Bestanden:
+    index.html  — deze pagina (shell + modals)
+    style.css   — alle opmaak
+    app.js      — configuratie + logica
+    logo.jpg    — Verpa logo (sidebar, loginscherm)
+    favicon.png — browser-tabblad icoon
+
+  De app werkt NIET lokaal: er is een echte Microsoft-login nodig.
+  Host op Cloudflare Pages of SharePoint SiteAssets.
+  Vul het CONFIG-object bovenaan app.js in.
+-->
+
+<!-- Initieel laadscherm (verdwijnt zodra boot() de DOM overneemt) -->
+<div id="root">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div style="width:68px;height:68px;margin:0 auto 16px;position:relative">
+        <img src="logo.jpg" alt="Verpa"
+             style="width:68px;height:68px;border-radius:14px;object-fit:cover;display:block"
+             onerror="this.style.display='none';document.getElementById('authLogoFallback').style.display='grid'">
+        <div id="authLogoFallback"
+             style="display:none;position:absolute;inset:0;border-radius:14px;
+                    background:linear-gradient(135deg,#0d8b80,#0a6f66);
+                    place-items:center;color:#fff;font-weight:800;font-size:26px;
+                    box-shadow:0 4px 14px rgba(13,139,128,.32)">V</div>
+      </div>
+      <div class="spinner"></div>
+      <p>Laden…</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+  MODAL: Nieuw Ticket
+  ============================================================ -->
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Nieuw ticket</h2>
+      <button class="icon-btn" onclick="closeModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M18 6 6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <!-- Categorie -->
+      <div class="field">
+        <label>Categorie <span class="req">*</span></label>
+        <div class="seg" id="catSeg">
+          <button data-v="Verkoop" onclick="setCat('Verkoop')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-5"/>
+            </svg>Verkoop
+          </button>
+          <button data-v="Technisch" onclick="setCat('Technisch')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2-2 2.7-2.7Z"/>
+            </svg>Technisch
+          </button>
+        </div>
+      </div>
+
+      <!-- Onderdeel -->
+      <div class="field hidden" id="subField">
+        <label>Onderdeel <span class="req">*</span></label>
+        <select id="f_subcat" onchange="onSubcatChange()"></select>
+      </div>
+
+      <!-- Dynamisch gebied (velden per subtype) -->
+      <div id="dynArea" class="hidden">
+        <div id="dynFields"></div>
+        <div class="row2">
+          <div class="field">
+            <label>Prioriteit</label>
+            <select id="f_prio">
+              <option value="low">Laag</option>
+              <option value="mid" selected>Gemiddeld</option>
+              <option value="high">Hoog</option>
+            </select>
+          </div>
+          <div class="field" id="assigneeField">
+            <label>Toegewezen aan</label>
+            <select id="f_assignee"></select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Bijlagen <span class="hint">— opgeslagen in SharePoint</span></label>
+          <div class="drop" id="drop" onclick="document.getElementById('newFileInput').click()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M12 16V4m0 0 4 4m-4-4L8 8"/>
+              <path d="M3 16v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/>
+            </svg>
+            <div style="margin-top:5px"><strong>Klik om te uploaden</strong> of sleep bestanden hierheen</div>
+          </div>
+          <input type="file" id="newFileInput" multiple style="display:none" onchange="addNewFiles(this.files)" />
+          <div id="newFiles"></div>
+        </div>
+      </div>
+
+      <div class="step-hint" id="stepHint">Kies eerst een categorie en onderdeel om de vragen te tonen.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Annuleren</button>
+      <button class="btn btn-primary" id="saveBtn" onclick="saveTicket()">Ticket aanmaken</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notificatie -->
+<div class="toast" id="toast"></div>
+
+<!-- ============================================================
+  DOCUMENTVIEWER overlay
+  ============================================================ -->
+<div class="viewer-overlay" id="viewerOverlay" onclick="if(event.target===this)closeViewer()">
+  <div class="viewer">
+    <div class="viewer-head">
+      <span class="vt" id="viewerTitle">Document</span>
+      <div class="viewer-actions">
+        <a class="viewer-btn" id="viewerDownload" href="#" target="_blank" rel="noopener">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 21h14"/>
+          </svg>Downloaden
+        </a>
+        <button class="viewer-btn" onclick="closeViewer()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>Sluiten
+        </button>
+      </div>
+    </div>
+    <div class="viewer-body" id="viewerBody"></div>
+  </div>
+</div>
+
+<!-- App logica -->
+<script src="app.js"></script>
+
+</body>
+</html>
