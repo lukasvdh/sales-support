@@ -20,7 +20,7 @@ const CONFIG = {
 
 const TEAM = ["Niet toegewezen", "Lukas Vanderheyden", "Aniel Haeyaert", "Sten Huygens"];
 const ACCOUNT_TYPES = ["Account manager", "Subaccount", "Standaard account"];
-const ASSORTMENTS = ["Algemeen assortiment", "Afgeschermd – Horeca", "Afgeschermd – Zorg", "Afgeschermd – Industrie", "Anders"];
+const ASSORTMENTS = ["Algemeen assortiment", "Afgeschermd assortiment"];
 const WEBSHOP_INFO = `<div class="infobox"><div class="ih"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>Webshop account hiërarchie</div><p>Een <b>Account manager</b> is een aankoper die bestellingen van medewerkers (subaccounts) moet goedkeuren. <b>Subaccounts</b> zijn medewerkers die bestellen onder goedkeuring van hun account manager. Een <b>Standaard account</b> is een zelfstandige klant zonder hiërarchie.</p></div>`;
 
 const FORMS = {
