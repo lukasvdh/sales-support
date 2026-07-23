@@ -440,8 +440,8 @@ async function openDetail(itemId){
 /* Render message text: stored as HTML (rich) or plain text (legacy) */
 function renderMsgText(text){
   if(!text) return "";
-  // If it looks like HTML (starts with a tag), render as-is (sanitized)
-  if(text.trimStart().startsWith("<")) return `<div class="mc">${text}</div>`;
+  // If the text contains any HTML tags anywhere, render as HTML
+  if(/<[a-zA-Z][^>]*>/.test(text)) return `<div class="mc">${text}</div>`;
   // Otherwise treat as plain text
   return `<div class="mc">${esc(text).replace(/\n/g,"<br>")}</div>`;
 }
