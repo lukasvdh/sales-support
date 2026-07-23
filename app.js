@@ -25,10 +25,7 @@ const WEBSHOP_INFO = `<div class="infobox"><div class="ih"><svg width="15" heigh
 
 const FORMS = {
   Verkoop: {
-    "Prijswijzigingen": { title:r=>`Prijswijziging – ${[r.leverancier,r.klantnaam].filter(Boolean).join(" / ")||"?"}`, fields:[
-      {k:"leverancier",label:"Welke leverancier?",type:"text",req:true},{k:"klantnaam",label:"Klantnaam",type:"text",req:true},
-      {k:"klantnummer",label:"Klantnummer",type:"text"},{k:"groep",label:"Zit de klant in een groep?",type:"yesno",req:true},
-      {k:"omschrijving",label:"Omschrijving vraag",type:"textarea",req:true}]},
+    "Prijswijzigingen": { fields:[{k:"onderwerp",label:"Onderwerp",type:"text",req:true,isSubject:true},{k:"omschrijving",label:"Omschrijving vraag",type:"textarea",req:true}]},
     "Afnamerapporten": { title:r=>`Afnamerapport – ${r.klant||"?"}`, fields:[
       {k:"klant",label:"Klant",type:"text",req:true},{k:"klantnummer",label:"Klantnummer",type:"text"},
       {k:"periode",label:"Periode",type:"daterange",req:true},{k:"niveau",label:"Op facturatieniveau of leveradresniveau?",type:"select",options:["Facturatieniveau","Leveradresniveau"],req:true},
