@@ -566,7 +566,7 @@ async function sendReply(){
     detailTicket.messages.push({author:currentUser.name,internal:replyInternal,ts:Date.now(),text:txt,attachments:att});
     await patchTicket(detailTicket.itemId,{[COL.MessagesJson]:JSON.stringify(detailTicket.messages)});
     const wasInt=replyInternal;
-    if(!wasInt){ const snip=txt?(txt.replace(/<[^>]+>/g," ").slice(0,120)):(att.length?att.length+" bijlage(n) toegevoegd":""); notifyUpdate(detailTicket, ["Nieuw bericht van "+currentUser.name+": "+snip]); }
+    if(!wasInt){ const snip=txt?(txt.replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim().slice(0,120)):(att.length?att.length+" bijlage(n) toegevoegd":""); notifyUpdate(detailTicket, ["Nieuw bericht van "+currentUser.name+": "+snip]); }
     replyFiles=[]; replyInternal=false; renderDetail(); toast(wasInt?"Interne notitie toegevoegd":"Bericht verstuurd");
   }catch(e){ toast("Versturen mislukt"); btn.disabled=false; }
 }
@@ -660,7 +660,7 @@ async function sendMail(toEmails, subject, html){
   }
 }
 const statusLabel=k=>STATUS[k]?STATUS[k].label:k, prioLabel=k=>PRIO[k]?PRIO[k].label:k;
-function emailShell(title, intro, rows, ticket){
+function emailShell(title, intro, rows, ticket, extraTable=""){
   const rowsHtml=rows.map(r=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">${r[0]}</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${r[1]}</td></tr>`).join("");
   const link=CONFIG.redirectUri||"#";
   return `<div style="margin:0;padding:24px;background:#eef1f4;font-family:Inter,Segoe UI,Arial,sans-serif">
@@ -674,7 +674,8 @@ function emailShell(title, intro, rows, ticket){
       <div style="background:#f8fafc;border:1px solid #eef1f5;border-radius:10px;padding:14px 16px;margin-bottom:20px">
         <div style="font-size:15px;font-weight:700;color:#111826;margin-bottom:4px">${esc(ticket.subject)}</div>
         <div style="font-size:12px;color:#98a2b3;margin-bottom:10px">${esc(ticket.ref)}</div>
-        <table style="width:100%;border-collapse:collapse">${rowsHtml}</table>
+        ${rows.length?`<table style="width:100%;border-collapse:collapse">${rowsHtml}</table>`:""}
+      ${extraTable}
       </div>
       <a href="${link}" style="display:inline-block;background:#f37a2b;color:#fff;text-decoration:none;font-size:13.5px;font-weight:600;padding:11px 20px;border-radius:9px">Ticket openen</a>
       <div style="font-size:11.5px;color:#98a2b3;margin-top:22px;border-top:1px solid #eef1f5;padding-top:14px">Automatisch verstuurd door Verpa Support · Sales Support.</div>
@@ -683,9 +684,14 @@ function emailShell(title, intro, rows, ticket){
 }
 function buildNewTicketEmail(t){ return emailShell("Nieuw ticket ingediend", `Er is een nieuw ticket aangemaakt door <b>${esc(t.author)}</b>. Als beheerder kun je het oppakken en toewijzen.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)],["Omschrijving", esc((t.description||"—").slice(0,200))]], t); }
-function buildUpdateEmail(t, lines){ const ch=lines.map(l=>`<div style="font-size:13px;color:#111826;padding:5px 0;border-bottom:1px solid #f0f2f5">• ${esc(l)}</div>`).join("");
-  return emailShell("Er is een update op je ticket", `Het ticket dat je hebt ingediend of volgt, is bijgewerkt:<div style="margin-top:12px">${ch}</div>`,
-  [["Huidige status", statusLabel(t.status)],["Prioriteit", prioLabel(t.priority)],["Behandelaar", esc(t.assignee||"—")]], t); }
+function buildUpdateEmail(t, lines){
+  const chRows=lines.map(l=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Wijziging</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(l)}</td></tr>`).join("");
+  const statusRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Huidige status</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${statusLabel(t.status)}</td></tr>`;
+  const prioRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Prioriteit</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${prioLabel(t.priority)}</td></tr>`;
+  const assignRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Behandelaar</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(t.assignee||"—")}</td></tr>`;
+  const link=CONFIG.redirectUri||"#";
+  return emailShell("Er is een update op je ticket", "Het ticket dat je hebt ingediend of volgt, is bijgewerkt.",
+  [], t, `<table style="width:100%;border-collapse:collapse">${chRows}${statusRow}${prioRow}${assignRow}</table>`); }
 function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedeeld", `<b>${esc(name)}</b>, dit ticket is met je gedeeld zodat je mee kunt opvolgen. Je ontvangt voortaan ook updates.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
 function allTicketRecipients(t){
