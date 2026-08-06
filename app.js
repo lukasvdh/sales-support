@@ -680,8 +680,29 @@ function buildUpdateEmail(t, lines){ const ch=lines.map(l=>`<div style="font-siz
   [["Huidige status", statusLabel(t.status)],["Prioriteit", prioLabel(t.priority)],["Behandelaar", esc(t.assignee||"—")]], t); }
 function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedeeld", `<b>${esc(name)}</b>, dit ticket is met je gedeeld zodat je mee kunt opvolgen. Je ontvangt voortaan ook updates.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
-function notifyNewTicket(t){ const to=(CONFIG.adminEmails||[]).filter(e=>e.toLowerCase()!==currentUser.upn); sendMail(to, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t)); }
-function notifyUpdate(t, lines){ const to=[t.ownerUpn, ...((t.followers||[]).map(f=>f.upn))].filter(u=>u && u.toLowerCase()!==currentUser.upn); sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines)); }
+function allTicketRecipients(t){
+  // Verzamelt alle unieke ontvangers voor een ticket:
+  // beheerders (adminEmails) + ticket creator (ownerUpn) + followers
+  const set=new Set();
+  (CONFIG.adminEmails||[]).forEach(e=>{ if(e) set.add(e.toLowerCase()); });
+  if(t.ownerUpn) set.add(t.ownerUpn.toLowerCase());
+  (t.followers||[]).forEach(f=>{ if(f.upn) set.add(f.upn.toLowerCase()); });
+  // Huidige gebruiker ontvangt geen mail over zijn eigen actie
+  set.delete((currentUser.upn||"").toLowerCase());
+  return [...set];
+}
+function notifyNewTicket(t){
+  // Bij nieuw ticket: beheerders + ticket creator (creator is hier de huidige gebruiker,
+  // dus hij ontvangt geen eigen bevestiging — enkel de andere beheerders)
+  const to=(CONFIG.adminEmails||[]).filter(e=>e&&e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
+  sendMail(to, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
+}
+function notifyUpdate(t, lines){
+  // Bij update: beheerders + ticket creator + followers (iedereen behalve de persoon die de actie uitvoert)
+  const to=allTicketRecipients(t);
+  if(!to.length) return;
+  sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines));
+}
 
 /* ===================== DOCUMENTVIEWER ===================== */
 function openViewer(name){
