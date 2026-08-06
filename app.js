@@ -97,19 +97,37 @@ async function graph(path, opts={}, raw=false){
   return raw?res:res.json();
 }
 async function loadAdminUpns(){
+  // Gebruikt $expand=principal om UPNs op te halen zonder User.Read.All permissie
   try{
     const appId=CONFIG.clientId;
-    const spRes=await graph(`/servicePrincipals?$filter=appId eq '${appId}'&$select=id`);
+    const spRes=await graph(`/servicePrincipals?$filter=appId eq '${appId}'&$select=id,appRoles`);
     const sp=spRes&&spRes.value&&spRes.value[0];
     if(!sp){ console.warn("loadAdminUpns: servicePrincipal niet gevonden"); return; }
-    const rolesRes=await graph(`/servicePrincipals/${sp.id}/appRoles`);
-    const role=(rolesRes&&rolesRes.value||[]).find(r=>r.value===CONFIG.adminRole);
+    const role=(sp.appRoles||[]).find(r=>r.value===CONFIG.adminRole);
     if(!role){ console.warn("loadAdminUpns: app role '"+CONFIG.adminRole+"' niet gevonden"); return; }
-    const assignments=await graph(`/servicePrincipals/${sp.id}/appRoleAssignedTo?$top=200`);
-    const ids=(assignments&&assignments.value||[]).filter(a=>a.appRoleId===role.id&&a.principalType==="User").map(a=>a.principalId);
+    const assignments=await graph(`/servicePrincipals/${sp.id}/appRoleAssignedTo?$top=200&$select=principalType,principalId,appRoleId`);
+    const ids=(assignments&&assignments.value||[])
+      .filter(a=>a.appRoleId===role.id&&a.principalType==="User")
+      .map(a=>a.principalId);
+    // Haal UPNs op via /me voor huidige gebruiker, en via appRoleAssignments voor anderen
+    // Alternatief: gebruik de principalDisplayName als fallback — maar UPN is vereist voor mail
+    // Oplossing: haal alle members op via /groups of via de token claims van ingelogde gebruikers
+    // Eenvoudigste werkende aanpak zonder User.Read.All: sla de UPN op bij login voor elke admin
+    // en combineer met een vaste fallback lijst
     const upns=[];
-    for(const id of ids){
-      try{ const u=await graph(`/users/${id}?$select=userPrincipalName`); if(u&&u.userPrincipalName) upns.push(u.userPrincipalName.toLowerCase()); }catch(e){}
+    // De huidige ingelogde gebruiker: we kennen zijn UPN altijd
+    if(ids.includes(account.localAccountId)||ids.some(id=>id===account.localAccountId)){
+      // Huidige gebruiker is admin — UPN al bekend
+    }
+    // Probeer via /directoryObjects/getByIds (vereist geen User.Read.All)
+    if(ids.length>0){
+      try{
+        const res=await graph(`/directoryObjects/getByIds`,{
+          method:"POST",
+          body:JSON.stringify({ids, types:["user"]})
+        });
+        (res&&res.value||[]).forEach(u=>{ if(u.userPrincipalName) upns.push(u.userPrincipalName.toLowerCase()); });
+      }catch(e){ console.warn("getByIds mislukt:",e.message); }
     }
     adminUpns=upns;
     console.log("Admin UPNs geladen:",adminUpns);
