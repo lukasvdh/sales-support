@@ -14,7 +14,8 @@ const CONFIG = {
   listName:    "Tickets",                                // naam van de SharePoint List
   attachFolder:"Tickets",                                // map in de documentbibliotheek voor bijlagen
   adminRole:   "Admin",                                  // naam van de Azure AD App Role voor beheerders
-  adminEmails: ["lukas@verpa.be"]                        // ontvangers van 'nieuw ticket'-mails (pas aan naar je beheerders)
+  adminEmails: ["lukas@verpa.be"],                       // ontvangers van 'nieuw ticket'-mails (pas aan naar je beheerders)
+  mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev" // Cloudflare Worker voor mailverzending
 };
 /* ============================================================================ */
 
@@ -621,7 +622,35 @@ async function removeFollower(upn){
 }
 
 /* ===================== E-MAIL ===================== */
-async function sendMail(toEmails, subject, html){ /* e-mail uitgeschakeld — Mail.Send scope niet vereist */ }
+/**
+ * Verstuurt e-mail via de Cloudflare Worker (verpa-mail-proxy).
+ * De Worker gebruikt een application-level Graph permissie (Mail.Send)
+ * die éénmalig door de tenant-beheerder goedgekeurd is.
+ * Er is geen delegated toestemming per gebruiker nodig.
+ *
+ * @param {string[]} toEmails  - Lijst van ontvangers (UPN / e-mailadres)
+ * @param {string}   subject   - Onderwerpregel
+ * @param {string}   html      - HTML-body van de mail
+ */
+async function sendMail(toEmails, subject, html){
+  if(!CONFIG.mailWorker){ console.warn("sendMail: mailWorker niet geconfigureerd in CONFIG"); return; }
+  const recipients=(Array.isArray(toEmails)?toEmails:[toEmails]).filter(e=>e&&e.includes("@"));
+  if(!recipients.length) return;
+  try{
+    const res=await fetch(CONFIG.mailWorker,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ to:recipients, subject, html })
+    });
+    if(!res.ok){
+      const txt=await res.text();
+      console.warn("sendMail: Worker antwoordde",res.status,txt.slice(0,200));
+    }
+  }catch(e){
+    // Mail-fouten mogen de app niet blokkeren — stil loggen
+    console.warn("sendMail mislukt:",e.message);
+  }
+}
 const statusLabel=k=>STATUS[k]?STATUS[k].label:k, prioLabel=k=>PRIO[k]?PRIO[k].label:k;
 function emailShell(title, intro, rows, ticket){
   const rowsHtml=rows.map(r=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">${r[0]}</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${r[1]}</td></tr>`).join("");
