@@ -14,6 +14,7 @@ const CONFIG = {
   listName:    "Tickets",                                // naam van de SharePoint List
   attachFolder:"Tickets",                                // map in de documentbibliotheek voor bijlagen
   adminRole:   "Admin",                                  // naam van de Azure AD App Role voor beheerders
+  userRole:    "User",                                   // naam van de Azure AD App Role voor gewone gebruikers
   adminEmails: ["lukas@verpa.be","sten.huygens@verpa.be","aniel@verpa.be"], // e-mailadressen van beheerders
   mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev" // Cloudflare Worker voor mailverzending
 };
@@ -79,6 +80,7 @@ function fmtD(iso){ if(!iso)return""; const p=iso.split("-"); return p.length===
 function ago(ts){ const s=(Date.now()-ts)/1000; if(s<60)return"zojuist"; const m=s/60; if(m<60)return Math.floor(m)+" min geleden"; const h=m/60; if(h<24)return Math.floor(h)+" uur geleden"; const d=h/24; if(d<30)return Math.floor(d)+(Math.floor(d)===1?" dag geleden":" dagen geleden"); return new Date(ts).toLocaleDateString("nl-BE",{day:"2-digit",month:"short"}); }
 function toast(m){ const t=document.getElementById("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),2600); }
 const isAdmin=()=>currentUser&&currentUser.isAdmin;
+const isUser=()=>currentUser&&currentUser.isUser;
 const parseJson=(s,fb)=>{ try{ return s?JSON.parse(s):fb; }catch{ return fb; } };
 function previewOf(t){ return (t.description||(t.fields&&t.fields[0]?t.fields[0].value:"")).split("\n")[0].slice(0,90); }
 function searchText(t){ return [t.subject,t.ref,t.author,...(t.fields||[]).map(f=>f.value),t.description].join(" ").toLowerCase(); }
@@ -197,7 +199,7 @@ async function signIn(){ try{ await msalInstance.loginRedirect({scopes:SCOPES});
 async function afterLogin(){
   const claims=account.idTokenClaims||{};
   const roles=claims.roles||[];
-  currentUser={ name:account.name||claims.name||account.username, upn:(account.username||"").toLowerCase(), isAdmin:roles.includes(CONFIG.adminRole) };
+  currentUser={ name:account.name||claims.name||account.username, upn:(account.username||"").toLowerCase(), isAdmin:roles.includes(CONFIG.adminRole), isUser:roles.includes(CONFIG.userRole) };
   document.getElementById("root").innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="spinner"></div><p>Verbinden met SharePoint…</p></div></div>`;
   try{ await resolveIds(); await loadAdminEmails(); await loadTickets(); showApp(); }
   catch(e){ renderFatal(e.message); }
@@ -693,9 +695,8 @@ function allTicketRecipients(t){
   return [...set];
 }
 function notifyNewTicket(t){
-  console.log("[notifyNewTicket] adminEmails:",adminEmails,"currentUser.upn:",currentUser.upn);
+  // Alle admins ontvangen een mail bij elk nieuw ticket, ongeacht wie het aanmaakt
   const toAdmins=adminEmails.filter(e=>e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
-  console.log("[notifyNewTicket] toAdmins:",toAdmins);
   if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
 }
 function notifyUpdate(t, lines){
