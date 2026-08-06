@@ -14,7 +14,7 @@ const CONFIG = {
   listName:    "Tickets",                                // naam van de SharePoint List
   attachFolder:"Tickets",                                // map in de documentbibliotheek voor bijlagen
   adminRole:   "Admin",                                  // naam van de Azure AD App Role voor beheerders
-  adminEmails:   ["lukas@verpa.be","sten.huygens@verpa.be","aniel@verpa.be"], // UPNs van alle beheerders
+  adminEmails:   ["lukas@verpa.be","sten.huygens@verpa.be","aniel.haesaert@verpa.be","peter.herpels@verpa.be"], // UPNs van alle beheerders
   mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev" // Cloudflare Worker voor mailverzending
 };
 /* ============================================================================ */
@@ -97,7 +97,7 @@ async function graph(path, opts={}, raw=false){
   if(res.status===204) return null;
   return raw?res:res.json();
 }
-async function loadAdminUpns(){
+async function loadAdminEmails(){
   adminEmails=(CONFIG.adminEmails||[]).map(e=>e.toLowerCase());
 }
 async function resolveIds(){
@@ -199,7 +199,7 @@ async function afterLogin(){
   const roles=claims.roles||[];
   currentUser={ name:account.name||claims.name||account.username, upn:(account.username||"").toLowerCase(), isAdmin:roles.includes(CONFIG.adminRole) };
   document.getElementById("root").innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="spinner"></div><p>Verbinden met SharePoint…</p></div></div>`;
-  try{ await resolveIds(); loadAdminUpns(); await loadTickets(); showApp(); }
+  try{ await resolveIds(); await loadAdminEmails(); await loadTickets(); showApp(); }
   catch(e){ renderFatal(e.message); }
 }
 function logout(){ msalInstance.logoutRedirect(); }
