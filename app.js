@@ -665,8 +665,8 @@ function emailShell(title, intro, rows, ticket){
   const link=CONFIG.redirectUri||"#";
   return `<div style="margin:0;padding:24px;background:#eef1f4;font-family:Inter,Segoe UI,Arial,sans-serif">
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e7ebf0;border-radius:14px;overflow:hidden">
-    <div style="background:linear-gradient(135deg,#f37a2b,#d4661a);padding:20px 24px;color:#fff">
-      <table><tr><td style="width:36px;height:36px;border-radius:9px;background:rgba(255,255,255,.18);text-align:center;font-weight:800;font-size:17px;color:#fff">V</td><td style="padding-left:12px"><div style="font-size:16px;font-weight:700">Verpa Support</div><div style="font-size:12px;opacity:.85">Ticketbeheer</div></td></tr></table>
+    <div style="background:#ffffff;padding:20px 24px;border-bottom:2px solid #f37a2b">
+      <table><tr><td style="width:36px;height:36px;border-radius:9px;background:#f37a2b;text-align:center;font-weight:800;font-size:17px;color:#fff">V</td><td style="padding-left:12px"><div style="font-size:16px;font-weight:700;color:#f37a2b">Verpa Support</div><div style="font-size:12px;color:#d4661a">Ticketbeheer</div></td></tr></table>
     </div>
     <div style="padding:24px">
       <div style="font-size:18px;font-weight:750;color:#111826;letter-spacing:-.3px;margin-bottom:6px">${title}</div>
