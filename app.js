@@ -14,7 +14,7 @@ const CONFIG = {
   listName:    "Tickets",                                // naam van de SharePoint List
   attachFolder:"Tickets",                                // map in de documentbibliotheek voor bijlagen
   adminRole:   "Admin",                                  // naam van de Azure AD App Role voor beheerders
-  adminUpns:   ["lukas@verpa.be","sten.huygens@verpa.be","aniel@verpa.be"], // UPNs van alle beheerders
+  adminEmails:   ["lukas@verpa.be","sten.huygens@verpa.be","aniel@verpa.be"], // UPNs van alle beheerders
   mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev" // Cloudflare Worker voor mailverzending
 };
 /* ============================================================================ */
@@ -62,7 +62,7 @@ const SCOPES=["User.Read","Sites.ReadWrite.All","Files.ReadWrite.All"];
 
 /* ===================== STATE ===================== */
 let msalInstance=null, account=null, currentUser=null;
-let adminUpns=[]; // UPNs van alle gebruikers met de Admin app role — geladen na login
+let adminEmails=[]; // UPNs van alle beheerders — geladen uit CONFIG.adminEmails
 let SITE_ID=null, LIST_ID=null, DRIVE_ID=null, COL={};
 let tickets=[], view="dashboard", currentId=null, detailTicket=null;
 let newCat=null, curSchema=null, newFiles=[], replyFiles=[], replyInternal=false, saving=false;
@@ -98,9 +98,7 @@ async function graph(path, opts={}, raw=false){
   return raw?res:res.json();
 }
 async function loadAdminUpns(){
-  // UPNs worden geladen uit CONFIG.adminUpns — pas deze lijst aan in het CONFIG-object bovenaan
-  adminUpns=(CONFIG.adminUpns||[]).map(e=>e.toLowerCase());
-  console.log("Admin UPNs geladen:",adminUpns);
+  adminEmails=(CONFIG.adminEmails||[]).map(e=>e.toLowerCase());
 }
 async function resolveIds(){
   const site=await graph(`/sites/${CONFIG.siteHostname}:${CONFIG.sitePath}`);
@@ -201,7 +199,7 @@ async function afterLogin(){
   const roles=claims.roles||[];
   currentUser={ name:account.name||claims.name||account.username, upn:(account.username||"").toLowerCase(), isAdmin:roles.includes(CONFIG.adminRole) };
   document.getElementById("root").innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="spinner"></div><p>Verbinden met SharePoint…</p></div></div>`;
-  try{ await resolveIds(); await loadAdminUpns(); await loadTickets(); showApp(); }
+  try{ await resolveIds(); loadAdminUpns(); await loadTickets(); showApp(); }
   catch(e){ renderFatal(e.message); }
 }
 function logout(){ msalInstance.logoutRedirect(); }
@@ -687,9 +685,13 @@ function buildUpdateEmail(t, lines){ const ch=lines.map(l=>`<div style="font-siz
 function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedeeld", `<b>${esc(name)}</b>, dit ticket is met je gedeeld zodat je mee kunt opvolgen. Je ontvangt voortaan ook updates.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
 function allTicketRecipients(t){
-  // beheerders (via Entra app role) + ticket creator (ownerUpn) + followers
   const set=new Set();
-  adminUpns.forEach(e=>{ if(e) set.add(e.toLowerCase()); });
+  adminEmails.forEach(e=>{ if(e) set.add(e); });
+  if(t.ownerUpn) set.add(t.ownerUpn.toLowerCase());
+  (t.followers||[]).forEach(f=>{ if(f.upn) set.add(f.upn.toLowerCase()); });
+  set.delete((currentUser.upn||"").toLowerCase());
+  return [...set];
+});
   if(t.ownerUpn) set.add(t.ownerUpn.toLowerCase());
   (t.followers||[]).forEach(f=>{ if(f.upn) set.add(f.upn.toLowerCase()); });
   // Huidige gebruiker ontvangt geen mail over zijn eigen actie
@@ -697,15 +699,15 @@ function allTicketRecipients(t){
   return [...set];
 }
 function notifyNewTicket(t){
-  // Alleen beheerders (via Entra app role) ontvangen een melding bij een nieuw ticket
-  const toAdmins=adminUpns.filter(e=>e&&e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
+  const toAdmins=adminEmails.filter(e=>e!==(currentUser.upn||"").toLowerCase());
   if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
+}: ${t.subject}`, buildNewTicketEmail(t));
 }
 function notifyUpdate(t, lines){
-  // Bij update: beheerders + ticket creator + followers (iedereen behalve de persoon die de actie uitvoert)
   const to=allTicketRecipients(t);
   if(!to.length) return;
   sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines));
+}: ${t.subject}`, buildUpdateEmail(t, lines));
 }
 
 /* ===================== DOCUMENTVIEWER ===================== */
