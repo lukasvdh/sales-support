@@ -14,7 +14,7 @@ const CONFIG = {
   listName:    "Tickets",                                // naam van de SharePoint List
   attachFolder:"Tickets",                                // map in de documentbibliotheek voor bijlagen
   adminRole:   "Admin",                                  // naam van de Azure AD App Role voor beheerders
-  adminEmails:   ["lukas@verpa.be","sten.huygens@verpa.be","aniel.haesaert@verpa.be","peter.herpels@verpa.be"], // UPNs van alle beheerders
+  adminEmails: ["lukas@verpa.be","sten.huygens@verpa.be","aniel@verpa.be"], // e-mailadressen van beheerders
   mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev" // Cloudflare Worker voor mailverzending
 };
 /* ============================================================================ */
@@ -62,7 +62,7 @@ const SCOPES=["User.Read","Sites.ReadWrite.All","Files.ReadWrite.All"];
 
 /* ===================== STATE ===================== */
 let msalInstance=null, account=null, currentUser=null;
-let adminEmails=[]; // UPNs van alle beheerders — geladen uit CONFIG.adminEmails
+let adminEmails=[]; // e-mailadressen van beheerders uit CONFIG
 let SITE_ID=null, LIST_ID=null, DRIVE_ID=null, COL={};
 let tickets=[], view="dashboard", currentId=null, detailTicket=null;
 let newCat=null, curSchema=null, newFiles=[], replyFiles=[], replyInternal=false, saving=false;
@@ -693,7 +693,9 @@ function allTicketRecipients(t){
   return [...set];
 }
 function notifyNewTicket(t){
+  console.log("[notifyNewTicket] adminEmails:",adminEmails,"currentUser.upn:",currentUser.upn);
   const toAdmins=adminEmails.filter(e=>e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
+  console.log("[notifyNewTicket] toAdmins:",toAdmins);
   if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
 }
 function notifyUpdate(t, lines){
