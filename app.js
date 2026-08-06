@@ -665,7 +665,7 @@ function emailShell(title, intro, rows, ticket){
   const link=CONFIG.redirectUri||"#";
   return `<div style="margin:0;padding:24px;background:#eef1f4;font-family:Inter,Segoe UI,Arial,sans-serif">
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e7ebf0;border-radius:14px;overflow:hidden">
-    <div style="background:linear-gradient(135deg,#0d8b80,#0a6f66);padding:20px 24px;color:#fff">
+    <div style="background:linear-gradient(135deg,#f37a2b,#d4661a);padding:20px 24px;color:#fff">
       <table><tr><td style="width:36px;height:36px;border-radius:9px;background:rgba(255,255,255,.18);text-align:center;font-weight:800;font-size:17px;color:#fff">V</td><td style="padding-left:12px"><div style="font-size:16px;font-weight:700">Verpa Support</div><div style="font-size:12px;opacity:.85">Ticketbeheer</div></td></tr></table>
     </div>
     <div style="padding:24px">
@@ -676,7 +676,7 @@ function emailShell(title, intro, rows, ticket){
         <div style="font-size:12px;color:#98a2b3;margin-bottom:10px">${esc(ticket.ref)}</div>
         <table style="width:100%;border-collapse:collapse">${rowsHtml}</table>
       </div>
-      <a href="${link}" style="display:inline-block;background:#0d8b80;color:#fff;text-decoration:none;font-size:13.5px;font-weight:600;padding:11px 20px;border-radius:9px">Ticket openen</a>
+      <a href="${link}" style="display:inline-block;background:#f37a2b;color:#fff;text-decoration:none;font-size:13.5px;font-weight:600;padding:11px 20px;border-radius:9px">Ticket openen</a>
       <div style="font-size:11.5px;color:#98a2b3;margin-top:22px;border-top:1px solid #eef1f5;padding-top:14px">Automatisch verstuurd door Verpa Support · Sales Support.</div>
     </div>
   </div></div>`;
