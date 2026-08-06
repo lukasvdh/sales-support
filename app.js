@@ -566,7 +566,10 @@ async function sendReply(){
     detailTicket.messages.push({author:currentUser.name,internal:replyInternal,ts:Date.now(),text:txt,attachments:att});
     await patchTicket(detailTicket.itemId,{[COL.MessagesJson]:JSON.stringify(detailTicket.messages)});
     const wasInt=replyInternal;
-    if(!wasInt){ const snip=txt?(txt.replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim().slice(0,120)):(att.length?att.length+" bijlage(n) toegevoegd":""); notifyUpdate(detailTicket, ["Nieuw bericht van "+currentUser.name+": "+snip]); }
+    if(!wasInt){
+      const snip=txt?(txt.replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim().slice(0,120)):(att.length?att.length+" bijlage(n) toegevoegd":"");
+      notifyUpdate(detailTicket, ["Nieuw bericht van "+currentUser.name+": "+snip], att);
+    }
     replyFiles=[]; replyInternal=false; renderDetail(); toast(wasInt?"Interne notitie toegevoegd":"Bericht verstuurd");
   }catch(e){ toast("Versturen mislukt"); btn.disabled=false; }
 }
@@ -684,14 +687,14 @@ function emailShell(title, intro, rows, ticket, extraTable=""){
 }
 function buildNewTicketEmail(t){ return emailShell("Nieuw ticket ingediend", `Er is een nieuw ticket aangemaakt door <b>${esc(t.author)}</b>. Als beheerder kun je het oppakken en toewijzen.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)],["Omschrijving", esc((t.description||"—").slice(0,200))]], t); }
-function buildUpdateEmail(t, lines){
+function buildUpdateEmail(t, lines, attachments=[]){
   const chRows=lines.map(l=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Wijziging</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(l)}</td></tr>`).join("");
   const statusRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Huidige status</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${statusLabel(t.status)}</td></tr>`;
   const prioRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Prioriteit</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${prioLabel(t.priority)}</td></tr>`;
   const assignRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Behandelaar</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(t.assignee||"—")}</td></tr>`;
-  const link=CONFIG.redirectUri||"#";
+  const attHtml=attachments&&attachments.length?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid #f0f2f5"><div style="font-size:12px;color:#5b6677;margin-bottom:8px;font-weight:600">BIJLAGEN</div>${attachments.map(a=>`<div style="margin-bottom:6px"><a href="${a.webUrl}" style="color:#f37a2b;font-size:13px;text-decoration:none;font-weight:500">📎 ${esc(a.name)}</a></div>`).join("")}</div>`:"";
   return emailShell("Er is een update op je ticket", "Het ticket dat je hebt ingediend of volgt, is bijgewerkt.",
-  [], t, `<table style="width:100%;border-collapse:collapse">${chRows}${statusRow}${prioRow}${assignRow}</table>`); }
+  [], t, `<table style="width:100%;border-collapse:collapse">${chRows}${statusRow}${prioRow}${assignRow}</table>${attHtml}`); }
 function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedeeld", `<b>${esc(name)}</b>, dit ticket is met je gedeeld zodat je mee kunt opvolgen. Je ontvangt voortaan ook updates.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
 function allTicketRecipients(t){
@@ -707,10 +710,10 @@ function notifyNewTicket(t){
   const toAdmins=adminEmails.filter(e=>e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
   if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
 }
-function notifyUpdate(t, lines){
+function notifyUpdate(t, lines, attachments=[]){
   const to=allTicketRecipients(t);
   if(!to.length) return;
-  sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines));
+  sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines, attachments));
 }
 
 /* ===================== DOCUMENTVIEWER ===================== */
