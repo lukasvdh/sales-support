@@ -693,9 +693,17 @@ function emailShell(title, intro, rows, ticket, extraTable=""){
 }
 function buildNewTicketEmail(t){ return emailShell("Nieuw ticket ingediend", `Er is een nieuw ticket aangemaakt door <b>${esc(t.author)}</b>. Als beheerder kun je het oppakken en toewijzen.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)],["Omschrijving", esc((t.description||"—").slice(0,200))]], t); }
-function buildUpdateEmail(t, lines){ const ch=lines.map(l=>`<div style="font-size:13px;color:#111826;padding:5px 0;border-bottom:1px solid #f0f2f5">• ${esc(l)}</div>`).join("");
-  return emailShell("Er is een update op je ticket", `Het ticket dat je hebt ingediend of volgt, is bijgewerkt:<div style="margin-top:12px">${ch}</div>`,
-  [["Huidige status", statusLabel(t.status)],["Prioriteit", prioLabel(t.priority)],["Behandelaar", esc(t.assignee||"—")]], t); }
+function buildUpdateEmail(t, lines, attachments=[]){
+  const linesHtml=lines.map(l=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Update</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(l)}</td></tr>`).join("");
+  const attHtml=attachments&&attachments.length?`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Bijlagen</td><td style="padding:7px 0;font-size:13px">${attachments.map(a=>`<div style="margin-bottom:4px"><a href="${a.webUrl}" style="color:#f37a2b;text-decoration:none;font-weight:500">📎 ${esc(a.name)}</a></div>`).join("")}</td></tr>`:"";
+  const extraTable=`<table style="width:100%;border-collapse:collapse">
+    ${linesHtml}
+    <tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Huidige status</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${statusLabel(t.status)}</td></tr>
+    <tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Prioriteit</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${prioLabel(t.priority)}</td></tr>
+    <tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Behandelaar</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(t.assignee||"—")}</td></tr>
+    ${attHtml}
+  </table>`;
+  return emailShell("Er is een update op je ticket", "Het ticket dat je hebt ingediend of volgt, is bijgewerkt.", [], t, extraTable); }
 function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedeeld", `<b>${esc(name)}</b>, dit ticket is met je gedeeld zodat je mee kunt opvolgen. Je ontvangt voortaan ook updates.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
 function allTicketRecipients(t){
@@ -711,10 +719,10 @@ function notifyNewTicket(t){
   const toAdmins=adminEmails.filter(e=>e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
   if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
 }
-function notifyUpdate(t, lines){
+function notifyUpdate(t, lines, attachments=[]){
   const to=allTicketRecipients(t);
   if(!to.length) return;
-  sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines));
+  sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines, attachments));
 }
 
 /* ===================== DOCUMENTVIEWER ===================== */
