@@ -201,7 +201,11 @@ async function afterLogin(){
   const roles=claims.roles||[];
   currentUser={ name:account.name||claims.name||account.username, upn:(account.username||"").toLowerCase(), isAdmin:roles.includes(CONFIG.adminRole), isUser:roles.includes(CONFIG.userRole) };
   document.getElementById("root").innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="spinner"></div><p>Verbinden met SharePoint…</p></div></div>`;
-  try{ await resolveIds(); await loadAdminEmails(); await loadTickets(); showApp(); }
+  try{ await resolveIds(); await loadAdminEmails(); await loadTickets(); showApp();
+    // Directe link vanuit mail: open het ticket via #ticket-{itemId}
+    const hash=window.location.hash;
+    if(hash&&hash.startsWith("#ticket-")){ const id=hash.replace("#ticket-",""); if(id) openDetail(id); }
+  }
   catch(e){ renderFatal(e.message); }
 }
 function logout(){ msalInstance.logoutRedirect(); }
@@ -665,11 +669,13 @@ async function sendMail(toEmails, subject, html){
 const statusLabel=k=>STATUS[k]?STATUS[k].label:k, prioLabel=k=>PRIO[k]?PRIO[k].label:k;
 function emailShell(title, intro, rows, ticket, extraTable=""){
   const rowsHtml=rows.map(r=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">${r[0]}</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${r[1]}</td></tr>`).join("");
-  const link=CONFIG.redirectUri||"#";
+  const base=CONFIG.redirectUri||"#";
+  const link=ticket&&ticket.itemId?`${base}#ticket-${ticket.itemId}`:base;
+  const logoUrl=`${base}/logo.jpg`;
   return `<div style="margin:0;padding:24px;background:#eef1f4;font-family:Inter,Segoe UI,Arial,sans-serif">
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e7ebf0;border-radius:14px;overflow:hidden">
     <div style="background:#ffffff;padding:20px 24px;border-bottom:2px solid #f37a2b">
-      <table><tr><td style="width:36px;height:36px;border-radius:9px;background:#f37a2b;text-align:center;font-weight:800;font-size:17px;color:#fff">V</td><td style="padding-left:12px"><div style="font-size:16px;font-weight:700;color:#f37a2b">Verpa Support</div><div style="font-size:12px;color:#d4661a">Ticketbeheer</div></td></tr></table>
+      <table><tr><td style="width:42px;height:42px;border-radius:9px;overflow:hidden;vertical-align:middle"><img src="${logoUrl}" alt="Verpa" width="42" height="42" style="width:42px;height:42px;border-radius:9px;object-fit:cover;display:block" /></td><td style="padding-left:12px;vertical-align:middle"><div style="font-size:16px;font-weight:700;color:#f37a2b">Verpa Support</div><div style="font-size:12px;color:#d4661a">Ticketbeheer</div></td></tr></table>
     </div>
     <div style="padding:24px">
       <div style="font-size:18px;font-weight:750;color:#111826;letter-spacing:-.3px;margin-bottom:6px">${title}</div>
