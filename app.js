@@ -424,9 +424,11 @@ async function saveTicket(){
     if(COL.Followers) fieldsObj[COL.Followers]=JSON.stringify([]);
     const t=await createTicketItem(fieldsObj);
     tickets.push(t);
+    console.log("[saveTicket] Ticket aangemaakt, notifyNewTicket wordt aangeroepen. adminEmails:",adminEmails);
     notifyNewTicket(t);
+    console.log("[saveTicket] notifyNewTicket klaar");
     closeModal(); openDetail(t.itemId); toast(`Ticket ${ref} aangemaakt`);
-  }catch(e){ toast("Opslaan mislukt — controleer je rechten"); console.error(e.message); }
+  }catch(e){ console.error("[saveTicket] FOUT:",e.message); toast("Opslaan mislukt — controleer je rechten"); }
   finally{ saving=false; btn.disabled=false; btn.textContent="Ticket aanmaken"; }
 }
 
