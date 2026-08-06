@@ -14,7 +14,6 @@ const CONFIG = {
   listName:    "Tickets",                                // naam van de SharePoint List
   attachFolder:"Tickets",                                // map in de documentbibliotheek voor bijlagen
   adminRole:   "Admin",                                  // naam van de Azure AD App Role voor beheerders
-  adminEmails: ["lukas@verpa.be"],                       // ontvangers van 'nieuw ticket'-mails (pas aan naar je beheerders)
   mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev" // Cloudflare Worker voor mailverzending
 };
 /* ============================================================================ */
@@ -62,6 +61,7 @@ const SCOPES=["User.Read","Sites.ReadWrite.All","Files.ReadWrite.All"];
 
 /* ===================== STATE ===================== */
 let msalInstance=null, account=null, currentUser=null;
+let adminUpns=[]; // UPNs van alle gebruikers met de Admin app role — geladen na login
 let SITE_ID=null, LIST_ID=null, DRIVE_ID=null, COL={};
 let tickets=[], view="dashboard", currentId=null, detailTicket=null;
 let newCat=null, curSchema=null, newFiles=[], replyFiles=[], replyInternal=false, saving=false;
@@ -95,6 +95,25 @@ async function graph(path, opts={}, raw=false){
   if(!res.ok){ const txt=await res.text(); throw new Error(`Graph ${res.status}: ${txt.slice(0,300)}`); }
   if(res.status===204) return null;
   return raw?res:res.json();
+}
+async function loadAdminUpns(){
+  try{
+    const appId=CONFIG.clientId;
+    const spRes=await graph(`/servicePrincipals?$filter=appId eq '${appId}'&$select=id`);
+    const sp=spRes&&spRes.value&&spRes.value[0];
+    if(!sp){ console.warn("loadAdminUpns: servicePrincipal niet gevonden"); return; }
+    const rolesRes=await graph(`/servicePrincipals/${sp.id}/appRoles`);
+    const role=(rolesRes&&rolesRes.value||[]).find(r=>r.value===CONFIG.adminRole);
+    if(!role){ console.warn("loadAdminUpns: app role '"+CONFIG.adminRole+"' niet gevonden"); return; }
+    const assignments=await graph(`/servicePrincipals/${sp.id}/appRoleAssignedTo?$top=200`);
+    const ids=(assignments&&assignments.value||[]).filter(a=>a.appRoleId===role.id&&a.principalType==="User").map(a=>a.principalId);
+    const upns=[];
+    for(const id of ids){
+      try{ const u=await graph(`/users/${id}?$select=userPrincipalName`); if(u&&u.userPrincipalName) upns.push(u.userPrincipalName.toLowerCase()); }catch(e){}
+    }
+    adminUpns=upns;
+    console.log("Admin UPNs geladen:",adminUpns);
+  }catch(e){ console.warn("loadAdminUpns mislukt:",e.message); adminUpns=[]; }
 }
 async function resolveIds(){
   const site=await graph(`/sites/${CONFIG.siteHostname}:${CONFIG.sitePath}`);
@@ -195,7 +214,7 @@ async function afterLogin(){
   const roles=claims.roles||[];
   currentUser={ name:account.name||claims.name||account.username, upn:(account.username||"").toLowerCase(), isAdmin:roles.includes(CONFIG.adminRole) };
   document.getElementById("root").innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="spinner"></div><p>Verbinden met SharePoint…</p></div></div>`;
-  try{ await resolveIds(); await loadTickets(); showApp(); }
+  try{ await resolveIds(); await loadAdminUpns(); await loadTickets(); showApp(); }
   catch(e){ renderFatal(e.message); }
 }
 function logout(){ msalInstance.logoutRedirect(); }
@@ -681,10 +700,9 @@ function buildUpdateEmail(t, lines){ const ch=lines.map(l=>`<div style="font-siz
 function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedeeld", `<b>${esc(name)}</b>, dit ticket is met je gedeeld zodat je mee kunt opvolgen. Je ontvangt voortaan ook updates.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
 function allTicketRecipients(t){
-  // Verzamelt alle unieke ontvangers voor een ticket:
-  // beheerders (adminEmails) + ticket creator (ownerUpn) + followers
+  // beheerders (via Entra app role) + ticket creator (ownerUpn) + followers
   const set=new Set();
-  (CONFIG.adminEmails||[]).forEach(e=>{ if(e) set.add(e.toLowerCase()); });
+  adminUpns.forEach(e=>{ if(e) set.add(e.toLowerCase()); });
   if(t.ownerUpn) set.add(t.ownerUpn.toLowerCase());
   (t.followers||[]).forEach(f=>{ if(f.upn) set.add(f.upn.toLowerCase()); });
   // Huidige gebruiker ontvangt geen mail over zijn eigen actie
@@ -692,10 +710,9 @@ function allTicketRecipients(t){
   return [...set];
 }
 function notifyNewTicket(t){
-  // Bij nieuw ticket: beheerders + ticket creator (creator is hier de huidige gebruiker,
-  // dus hij ontvangt geen eigen bevestiging — enkel de andere beheerders)
-  const to=(CONFIG.adminEmails||[]).filter(e=>e&&e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
-  sendMail(to, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
+  // Alleen beheerders (via Entra app role) ontvangen een melding bij een nieuw ticket
+  const toAdmins=adminUpns.filter(e=>e&&e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
+  if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
 }
 function notifyUpdate(t, lines){
   // Bij update: beheerders + ticket creator + followers (iedereen behalve de persoon die de actie uitvoert)
