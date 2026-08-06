@@ -164,6 +164,9 @@ async function ensureMsal(){
   throw new Error("De Microsoft-loginbibliotheek (MSAL) kon niet geladen worden.");
 }
 async function boot(){
+  // Sla ticket hash op vóór MSAL redirect (hash gaat verloren tijdens login redirect)
+  const hash=window.location.hash;
+  if(hash&&hash.startsWith("#ticket-")){ sessionStorage.setItem("openTicketId", hash.replace("#ticket-","")); }
   console.log("Verpa Support Desk — build: v5 met logo + rijke teksteditor");
   if(CONFIG.clientId.startsWith("PLAK_HIER")){ return renderConfigError(); }
   try{
@@ -202,9 +205,9 @@ async function afterLogin(){
   currentUser={ name:account.name||claims.name||account.username, upn:(account.username||"").toLowerCase(), isAdmin:roles.includes(CONFIG.adminRole), isUser:roles.includes(CONFIG.userRole) };
   document.getElementById("root").innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="spinner"></div><p>Verbinden met SharePoint…</p></div></div>`;
   try{ await resolveIds(); await loadAdminEmails(); await loadTickets(); showApp();
-    // Directe link vanuit mail: open het ticket via #ticket-{itemId}
-    const hash=window.location.hash;
-    if(hash&&hash.startsWith("#ticket-")){ const id=hash.replace("#ticket-",""); if(id) openDetail(id); }
+    // Directe link vanuit mail: herstel opgeslagen ticket na MSAL redirect
+    const savedId=sessionStorage.getItem("openTicketId");
+    if(savedId){ sessionStorage.removeItem("openTicketId"); openDetail(savedId); }
   }
   catch(e){ renderFatal(e.message); }
 }
@@ -570,10 +573,7 @@ async function sendReply(){
     detailTicket.messages.push({author:currentUser.name,internal:replyInternal,ts:Date.now(),text:txt,attachments:att});
     await patchTicket(detailTicket.itemId,{[COL.MessagesJson]:JSON.stringify(detailTicket.messages)});
     const wasInt=replyInternal;
-    if(!wasInt){
-      const snip=txt?(txt.replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim().slice(0,120)):(att.length?att.length+" bijlage(n) toegevoegd":"");
-      notifyUpdate(detailTicket, ["Nieuw bericht van "+currentUser.name+": "+snip], att);
-    }
+    if(!wasInt){ const snip=txt?(txt.replace(/<[^>]+>/g," ").slice(0,120)):(att.length?att.length+" bijlage(n) toegevoegd":""); notifyUpdate(detailTicket, ["Nieuw bericht van "+currentUser.name+": "+snip]); }
     replyFiles=[]; replyInternal=false; renderDetail(); toast(wasInt?"Interne notitie toegevoegd":"Bericht verstuurd");
   }catch(e){ toast("Versturen mislukt"); btn.disabled=false; }
 }
@@ -667,15 +667,13 @@ async function sendMail(toEmails, subject, html){
   }
 }
 const statusLabel=k=>STATUS[k]?STATUS[k].label:k, prioLabel=k=>PRIO[k]?PRIO[k].label:k;
-function emailShell(title, intro, rows, ticket, extraTable=""){
+function emailShell(title, intro, rows, ticket){
   const rowsHtml=rows.map(r=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">${r[0]}</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${r[1]}</td></tr>`).join("");
-  const base=CONFIG.redirectUri||"#";
-  const link=ticket&&ticket.itemId?`${base}#ticket-${ticket.itemId}`:base;
-  const logoUrl=`${base}/logo.jpg`;
+  const link=CONFIG.redirectUri||"#";
   return `<div style="margin:0;padding:24px;background:#eef1f4;font-family:Inter,Segoe UI,Arial,sans-serif">
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e7ebf0;border-radius:14px;overflow:hidden">
-    <div style="background:#ffffff;padding:20px 24px;border-bottom:2px solid #f37a2b">
-      <table><tr><td style="width:42px;height:42px;border-radius:9px;overflow:hidden;vertical-align:middle"><img src="${logoUrl}" alt="Verpa" width="42" height="42" style="width:42px;height:42px;border-radius:9px;object-fit:cover;display:block" /></td><td style="padding-left:12px;vertical-align:middle"><div style="font-size:16px;font-weight:700;color:#f37a2b">Verpa Support</div><div style="font-size:12px;color:#d4661a">Ticketbeheer</div></td></tr></table>
+    <div style="background:linear-gradient(135deg,#0d8b80,#0a6f66);padding:20px 24px;color:#fff">
+      <table><tr><td style="width:36px;height:36px;border-radius:9px;background:rgba(255,255,255,.18);text-align:center;font-weight:800;font-size:17px;color:#fff">V</td><td style="padding-left:12px"><div style="font-size:16px;font-weight:700">Verpa Support</div><div style="font-size:12px;opacity:.85">Ticketbeheer</div></td></tr></table>
     </div>
     <div style="padding:24px">
       <div style="font-size:18px;font-weight:750;color:#111826;letter-spacing:-.3px;margin-bottom:6px">${title}</div>
@@ -683,24 +681,18 @@ function emailShell(title, intro, rows, ticket, extraTable=""){
       <div style="background:#f8fafc;border:1px solid #eef1f5;border-radius:10px;padding:14px 16px;margin-bottom:20px">
         <div style="font-size:15px;font-weight:700;color:#111826;margin-bottom:4px">${esc(ticket.subject)}</div>
         <div style="font-size:12px;color:#98a2b3;margin-bottom:10px">${esc(ticket.ref)}</div>
-        ${rows.length?`<table style="width:100%;border-collapse:collapse">${rowsHtml}</table>`:""}
-      ${extraTable}
+        <table style="width:100%;border-collapse:collapse">${rowsHtml}</table>
       </div>
-      <a href="${link}" style="display:inline-block;background:#f37a2b;color:#fff;text-decoration:none;font-size:13.5px;font-weight:600;padding:11px 20px;border-radius:9px">Ticket openen</a>
+      <a href="${link}" style="display:inline-block;background:#0d8b80;color:#fff;text-decoration:none;font-size:13.5px;font-weight:600;padding:11px 20px;border-radius:9px">Ticket openen</a>
       <div style="font-size:11.5px;color:#98a2b3;margin-top:22px;border-top:1px solid #eef1f5;padding-top:14px">Automatisch verstuurd door Verpa Support · Sales Support.</div>
     </div>
   </div></div>`;
 }
 function buildNewTicketEmail(t){ return emailShell("Nieuw ticket ingediend", `Er is een nieuw ticket aangemaakt door <b>${esc(t.author)}</b>. Als beheerder kun je het oppakken en toewijzen.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)],["Omschrijving", esc((t.description||"—").slice(0,200))]], t); }
-function buildUpdateEmail(t, lines, attachments=[]){
-  const chRows=lines.map(l=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Wijziging</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(l)}</td></tr>`).join("");
-  const statusRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Huidige status</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${statusLabel(t.status)}</td></tr>`;
-  const prioRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Prioriteit</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${prioLabel(t.priority)}</td></tr>`;
-  const assignRow=`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Behandelaar</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(t.assignee||"—")}</td></tr>`;
-  const attHtml=attachments&&attachments.length?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid #f0f2f5"><div style="font-size:12px;color:#5b6677;margin-bottom:8px;font-weight:600">BIJLAGEN</div>${attachments.map(a=>`<div style="margin-bottom:6px"><a href="${a.webUrl}" style="color:#f37a2b;font-size:13px;text-decoration:none;font-weight:500">📎 ${esc(a.name)}</a></div>`).join("")}</div>`:"";
-  return emailShell("Er is een update op je ticket", "Het ticket dat je hebt ingediend of volgt, is bijgewerkt.",
-  [], t, `<table style="width:100%;border-collapse:collapse">${chRows}${statusRow}${prioRow}${assignRow}</table>${attHtml}`); }
+function buildUpdateEmail(t, lines){ const ch=lines.map(l=>`<div style="font-size:13px;color:#111826;padding:5px 0;border-bottom:1px solid #f0f2f5">• ${esc(l)}</div>`).join("");
+  return emailShell("Er is een update op je ticket", `Het ticket dat je hebt ingediend of volgt, is bijgewerkt:<div style="margin-top:12px">${ch}</div>`,
+  [["Huidige status", statusLabel(t.status)],["Prioriteit", prioLabel(t.priority)],["Behandelaar", esc(t.assignee||"—")]], t); }
 function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedeeld", `<b>${esc(name)}</b>, dit ticket is met je gedeeld zodat je mee kunt opvolgen. Je ontvangt voortaan ook updates.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
 function allTicketRecipients(t){
@@ -716,10 +708,10 @@ function notifyNewTicket(t){
   const toAdmins=adminEmails.filter(e=>e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
   if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
 }
-function notifyUpdate(t, lines, attachments=[]){
+function notifyUpdate(t, lines){
   const to=allTicketRecipients(t);
   if(!to.length) return;
-  sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines, attachments));
+  sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines));
 }
 
 /* ===================== DOCUMENTVIEWER ===================== */
