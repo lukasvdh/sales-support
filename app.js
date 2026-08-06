@@ -686,28 +686,20 @@ function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedee
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
 function allTicketRecipients(t){
   const set=new Set();
-  adminEmails.forEach(e=>{ if(e) set.add(e); });
+  adminEmails.forEach(e=>{ if(e) set.add(e.toLowerCase()); });
   if(t.ownerUpn) set.add(t.ownerUpn.toLowerCase());
   (t.followers||[]).forEach(f=>{ if(f.upn) set.add(f.upn.toLowerCase()); });
-  set.delete((currentUser.upn||"").toLowerCase());
-  return [...set];
-});
-  if(t.ownerUpn) set.add(t.ownerUpn.toLowerCase());
-  (t.followers||[]).forEach(f=>{ if(f.upn) set.add(f.upn.toLowerCase()); });
-  // Huidige gebruiker ontvangt geen mail over zijn eigen actie
   set.delete((currentUser.upn||"").toLowerCase());
   return [...set];
 }
 function notifyNewTicket(t){
-  const toAdmins=adminEmails.filter(e=>e!==(currentUser.upn||"").toLowerCase());
+  const toAdmins=adminEmails.filter(e=>e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
   if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
-}: ${t.subject}`, buildNewTicketEmail(t));
 }
 function notifyUpdate(t, lines){
   const to=allTicketRecipients(t);
   if(!to.length) return;
   sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines));
-}: ${t.subject}`, buildUpdateEmail(t, lines));
 }
 
 /* ===================== DOCUMENTVIEWER ===================== */
