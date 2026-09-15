@@ -85,6 +85,7 @@ const isAdmin=()=>currentUser&&currentUser.isAdmin;
 const isUser=()=>currentUser&&currentUser.isUser;
 const parseJson=(s,fb)=>{ try{ return s?JSON.parse(s):fb; }catch{ return fb; } };
 const clone=o=>JSON.parse(JSON.stringify(o));
+function draftFromSettings(){ return clone(SETTINGS||mergeSettings(null)); }
 const jsq=s=>esc(String(s||"")).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
 const EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function htmlToText(html){ if(!html) return ""; try{ return (new DOMParser().parseFromString(html,"text/html").body.textContent||"").replace(/\s+/g," ").trim(); }catch{ return html.replace(/<[^>]+>/g," "); } }
@@ -275,7 +276,7 @@ async function refresh(){
   const keepDraft=view==="settings"&&settingsDirty();
   try{
     await Promise.all([loadTickets(), keepDraft?null:loadSettings()]);
-    if(view==="settings"&&!keepDraft) settingsDraft=clone(SETTINGS);
+    if(view==="settings"&&!keepDraft) settingsDraft=draftFromSettings();
     render(); toast(keepDraft?"Tickets bijgewerkt — je niet-opgeslagen instellingen zijn behouden":"Bijgewerkt");
   }catch(e){ toast("Kon niet vernieuwen"); }
 }
@@ -296,7 +297,7 @@ function go(v){
   if(v==="settings"&&view==="settings") return;
   if(!confirmLeave(v)) return;
   view=v; currentId=null;
-  if(v==="settings") settingsDraft=clone(SETTINGS);
+  if(v==="settings") settingsDraft=draftFromSettings();
   render();
 }
 function render(){ if(!currentUser)return; renderSidebar(); setNav(); if(view==="dashboard")renderDashboard(); else if(view==="list")renderListView(); else if(view==="archive")renderArchive(); else if(view==="detail")renderDetail(); else if(view==="settings")renderSettings(); }
@@ -879,22 +880,29 @@ function settingsPath(){
 
 async function loadSettings(){
   try{
-    // Haal metadata + download-URL op in één call.
-    // @microsoft.graph.downloadUrl is een pre-authenticated tijdelijke URL
-    // → geen Authorization-header nodig, werkt ook buiten Graph-domein.
+    // Stap 1: metadata ophalen voor de eTag (nodig bij opslaan via If-Match)
     const meta=await graph(`/sites/${SITE_ID}/drive/root:/${settingsPath()}?$select=id,eTag,@microsoft.graph.downloadUrl`);
     settingsETag=meta.eTag||null;
-    const dlUrl=meta["@microsoft.graph.downloadUrl"];
-    if(!dlUrl) throw new Error("Geen download-URL in Graph-respons");
-    // Bewust zonder Authorization-header: dlUrl is self-authenticating
-    const res=await fetch(dlUrl,{cache:"no-store"});
-    if(!res.ok) throw new Error("Download instellingen mislukt: "+res.status);
-    SETTINGS=mergeSettings(JSON.parse(await res.text()));
+    // Stap 2: inhoud ophalen. Voorkeur: pre-auth downloadUrl (geen extra token-overhead).
+    // Fallback: Graph /content endpoint (werkt altijd, vereist Bearer-token).
+    const dlUrl=meta["@microsoft.graph.downloadUrl"]||null;
+    let json;
+    if(dlUrl){
+      const res=await fetch(dlUrl,{cache:"no-store"});
+      if(!res.ok) throw new Error("Download mislukt: "+res.status);
+      json=await res.text();
+    }else{
+      const res=await graph(`/sites/${SITE_ID}/drive/root:/${settingsPath()}:/content`,{},true);
+      json=await res.text();
+    }
+    SETTINGS=mergeSettings(JSON.parse(json));
     settingsLoadError=false;
   }catch(e){
     if(String(e.message).match(/Graph 404|itemNotFound/)){ SETTINGS=mergeSettings(null); settingsETag=null; settingsLoadError=false; }
-    else { settingsLoadError=true; console.warn("Instellingen konden niet geladen worden — vorige/standaardwaarden blijven actief:", e.message); }
+    else { settingsLoadError=true; console.warn("Instellingen konden niet geladen worden — standaardwaarden actief:", e.message); }
   }
+  // Zorg dat SETTINGS nooit null blijft, ook bij onverwachte fouten
+  if(!SETTINGS) SETTINGS=mergeSettings(null);
   settingsLoadedAt=Date.now(); applySettings();
 }
 
@@ -939,14 +947,14 @@ async function saveSettings(){
       } else { throw putErr; }
     }
     SETTINGS=payload; settingsETag=(item&&item.eTag)||null; applySettings();
-    settingsDraft=clone(SETTINGS);
+    settingsDraft=draftFromSettings();
     settingsSaving=false; renderSettings(); renderSidebar(); toast("Instellingen opgeslagen");
   }catch(e){
     settingsSaving=false; updateSaveBar();
     console.error("[saveSettings]", e.message);
     if(String(e.message).startsWith("Graph 412")){
       if(confirm("Een andere beheerder heeft de instellingen intussen gewijzigd. De nieuwste versie laden? Je eigen wijzigingen gaan dan verloren.")){
-        await loadSettings(); settingsDraft=clone(SETTINGS); renderSettings(); renderSidebar();
+        await loadSettings(); settingsDraft=draftFromSettings(); renderSettings(); renderSidebar();
       }
     } else {
       // Toon de fout in de console en geef een duidelijke melding
@@ -954,13 +962,13 @@ async function saveSettings(){
     }
   }
 }
-function discardSettings(){ settingsDraft=clone(SETTINGS); renderSettings(); toast("Wijzigingen ongedaan gemaakt"); }
+function discardSettings(){ settingsDraft=draftFromSettings(); renderSettings(); toast("Wijzigingen ongedaan gemaakt"); }
 
 /* ---- Weergave ---- */
 function renderSettings(){
   const el=document.getElementById("view");
   if(!isAdmin()){ el.innerHTML=`<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><h3>Geen toegang</h3><p>Enkel beheerders kunnen de instellingen bekijken en wijzigen.</p></div>`; return; }
-  if(!settingsDraft) settingsDraft=clone(SETTINGS);
+  if(!settingsDraft) settingsDraft=draftFromSettings();
   const meta=SETTINGS.updatedAt
     ? `Laatst gewijzigd door ${esc(SETTINGS.updatedBy||"onbekend")} op ${fmtDate(SETTINGS.updatedAt)}. Wijzigingen gelden voor iedereen.`
     : "Nog niet aangepast: de standaardwaarden zijn actief. Wijzigingen gelden voor iedereen.";
