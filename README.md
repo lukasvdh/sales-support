@@ -26,7 +26,8 @@ Browser (MSAL.js)
     │
     ├── Microsoft Graph API
     │       ├── SharePoint List "Tickets"         ← tickets opslaan / ophalen
-    │       └── SharePoint Drive "Tickets/"       ← bijlagen uploaden
+    │       ├── SharePoint Drive "Tickets/"       ← bijlagen uploaden
+    │       └── Tickets/_instellingen/instellingen.json ← gedeelde instellingen
     │
     └── Cloudflare Pages (verpa-support.pages.dev)
             └── Statische bestanden (geen server-side logica)
@@ -48,7 +49,10 @@ const CONFIG = {
   listName:    "Tickets",
   attachFolder:"Tickets",
   adminRole:   "Admin",
-  adminEmails: ["lukas@verpa.be"]
+  userRole:    "User",
+  adminEmails: ["lukas@verpa.be","sten.huygens@verpa.be","aniel@verpa.be"], // enkel startwaarde, daarna via Instellingen
+  mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev",
+  settingsFile:"Tickets/_instellingen/instellingen.json"
 };
 ```
 
@@ -63,7 +67,7 @@ Het team dat tickets kan ontvangen en afhandelen:
 - Sten Huygens
 - Yana Verspreet
 
-Aanpassen via de `TEAM`-constante bovenaan `app.js`.
+Beheerders passen deze lijst (met e-mailadressen) aan via **Instellingen → Behandelaars**. De namen hierboven zijn enkel de startwaarden in `DEFAULT_SETTINGS`.
 
 ---
 
@@ -113,9 +117,22 @@ Referentienummers worden automatisch gegenereerd in het formaat `VRP-YYYY-XXXX`.
 
 ---
 
+## Instellingen (enkel beheerders)
+
+Beheerders zien in de zijbalk het menu **Instellingen**. Wijzigingen gelden voor alle gebruikers.
+
+- **E-mailmeldingen**: hoofdschakelaar voor alle mails, optie om geen mail te sturen over je eigen wijzigingen, en een testmail naar jezelf.
+- **Wie krijgt een mail bij welke wijziging?**: per wijziging (nieuw ticket, status, prioriteit, behandelaar, nieuw bericht, interne notitie, archiveren, delen) kies je welke gekoppelde personen een mail krijgen: indiener, behandelaar, volgers en/of beheerders. Bij statuswijzigingen kies je ook voor welke nieuwe statussen er gemaild wordt. Interne notities gaan nooit naar indiener of volgers.
+- **Behandelaars**: namen en e-mailadressen van het team. Het e-mailadres wordt gebruikt voor de kolom Behandelaar.
+- **Beheerders**: e-mailadressen voor de kolom Beheerders. Wie beheerdersrechten heeft, blijft bepaald door de Azure AD-rol `Admin`.
+
+De instellingen worden bewaard in `Tickets/_instellingen/instellingen.json` in de documentbibliotheek. Het bestand wordt aangemaakt bij de eerste keer opslaan; tot dan gelden de standaardwaarden. Twee beheerders die tegelijk opslaan, overschrijven elkaar niet: de tweede krijgt een melding om eerst te herladen.
+
+---
+
 ## Rollen
 
-- **Beheerder (Admin):** kan alle tickets zien, toewijzen, statuswijzigingen doorvoeren en interne notities plaatsen. Rol toegekend via Azure AD App Role `Admin`.
+- **Beheerder (Admin):** kan alle tickets zien, toewijzen, statuswijzigingen doorvoeren, interne notities plaatsen en de instellingen beheren. Rol toegekend via Azure AD App Role `Admin`.
 - **Standaard gebruiker:** kan eigen tickets aanmaken en het gesprek opvolgen.
 
 ---

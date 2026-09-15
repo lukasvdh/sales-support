@@ -16,11 +16,13 @@ const CONFIG = {
   adminRole:   "Admin",                                  // naam van de Azure AD App Role voor beheerders
   userRole:    "User",                                   // naam van de Azure AD App Role voor gewone gebruikers
   adminEmails: ["lukas@verpa.be","sten.huygens@verpa.be","aniel@verpa.be"], // e-mailadressen van beheerders
-  mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev" // Cloudflare Worker voor mailverzending
+  mailWorker:  "https://verpa-mail-proxy.lukas-f22.workers.dev", // Cloudflare Worker voor mailverzending
+  settingsFile:"Tickets/_instellingen/instellingen.json"   // gedeeld instellingenbestand in de documentbibliotheek
 };
 /* ============================================================================ */
 
-const TEAM = ["Niet toegewezen", "Lukas Vanderheyden", "Aniel Haeyaert", "Sten Huygens", "Yana Verspreet"];
+/* Behandelaars (TEAM) en beheerders-mailadressen worden nu beheerd via Instellingen.
+   De standaardwaarden staan in DEFAULT_SETTINGS verderop. */
 const ACCOUNT_TYPES = ["Account manager", "Subaccount", "Standaard account"];
 const ASSORTMENTS = ["Algemeen assortiment", "Afgeschermd assortiment"];
 const WEBSHOP_INFO = `<div class="infobox"><div class="ih"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>Webshop account hiërarchie</div><p>Een <b>Account manager</b> is een aankoper die bestellingen van medewerkers (subaccounts) moet goedkeuren. <b>Subaccounts</b> zijn medewerkers die bestellen onder goedkeuring van hun account manager. Een <b>Standaard account</b> is een zelfstandige klant zonder hiërarchie.</p></div>`;
@@ -82,6 +84,10 @@ function toast(m){ const t=document.getElementById("toast"); t.textContent=m; t.
 const isAdmin=()=>currentUser&&currentUser.isAdmin;
 const isUser=()=>currentUser&&currentUser.isUser;
 const parseJson=(s,fb)=>{ try{ return s?JSON.parse(s):fb; }catch{ return fb; } };
+const clone=o=>JSON.parse(JSON.stringify(o));
+const jsq=s=>esc(String(s||"")).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+const EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function htmlToText(html){ if(!html) return ""; try{ return (new DOMParser().parseFromString(html,"text/html").body.textContent||"").replace(/\s+/g," ").trim(); }catch{ return html.replace(/<[^>]+>/g," "); } }
 function previewOf(t){ return (t.description||(t.fields&&t.fields[0]?t.fields[0].value:"")).split("\n")[0].slice(0,90); }
 function searchText(t){ return [t.subject,t.ref,t.author,...(t.fields||[]).map(f=>f.value),t.description].join(" ").toLowerCase(); }
 
@@ -98,9 +104,6 @@ async function graph(path, opts={}, raw=false){
   if(!res.ok){ const txt=await res.text(); throw new Error(`Graph ${res.status}: ${txt.slice(0,300)}`); }
   if(res.status===204) return null;
   return raw?res:res.json();
-}
-async function loadAdminEmails(){
-  adminEmails=(CONFIG.adminEmails||[]).map(e=>e.toLowerCase());
 }
 async function resolveIds(){
   const site=await graph(`/sites/${CONFIG.siteHostname}:${CONFIG.sitePath}`);
@@ -167,7 +170,7 @@ async function boot(){
   // Sla ticket hash op vóór MSAL redirect (hash gaat verloren tijdens login redirect)
   const hash=window.location.hash;
   if(hash&&hash.startsWith("#ticket-")){ sessionStorage.setItem("openTicketId", hash.replace("#ticket-","")); }
-  console.log("Verpa Support Desk — build: v5 met logo + rijke teksteditor");
+  console.log("Verpa Support Desk — build: v6 met beheerdersinstellingen");
   if(CONFIG.clientId.startsWith("PLAK_HIER")){ return renderConfigError(); }
   try{
     await ensureMsal();
@@ -204,7 +207,7 @@ async function afterLogin(){
   const roles=claims.roles||[];
   currentUser={ name:account.name||claims.name||account.username, upn:(account.username||"").toLowerCase(), isAdmin:roles.includes(CONFIG.adminRole), isUser:roles.includes(CONFIG.userRole) };
   document.getElementById("root").innerHTML=`<div class="auth-wrap"><div class="auth-card"><div class="spinner"></div><p>Verbinden met SharePoint…</p></div></div>`;
-  try{ await resolveIds(); await loadAdminEmails(); await loadTickets(); showApp();
+  try{ await resolveIds(); await loadSettings(); await loadTickets(); showApp();
     // Directe link vanuit mail: herstel opgeslagen ticket na MSAL redirect
     const savedId=sessionStorage.getItem("openTicketId");
     if(savedId){ sessionStorage.removeItem("openTicketId"); openDetail(savedId); }
@@ -245,13 +248,14 @@ function showApp(){
       <aside class="sidebar" id="sidebar">
         <div class="sb-brand"><div class="row">
           <div class="sb-logo">${logoImg(38,10)}</div>
-          <div><h1>Verpa Support</h1><p>Ticketbeheer · v5</p></div>
+          <div><h1>Verpa Support</h1><p>Ticketbeheer · v6</p></div>
         </div></div>
         <nav class="sb-nav">
           <div class="nav-item" data-nav="dashboard" onclick="go('dashboard')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Dashboard</div>
           <div class="nav-item" onclick="openNew()"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nieuw Ticket</div>
           <div class="nav-item" data-nav="list" onclick="go('list')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>Alle Tickets</div>
           <div class="nav-item" data-nav="archive" onclick="go('archive')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>Archief</div>
+          ${isAdmin()?`<div class="nav-item" data-nav="settings" onclick="go('settings')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>Instellingen</div>`:""}
           <div class="nav-item" onclick="refresh()"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>Vernieuwen</div>
         </nav>
         <div class="sb-section">Per status</div><div class="sb-list" id="sbStatus"></div>
@@ -263,11 +267,18 @@ function showApp(){
       </aside>
       <main class="main"><div class="main-inner" id="view"></div></main>
     </div>`;
-  document.getElementById("f_assignee").innerHTML=TEAM.map(n=>`<option>${esc(n)}</option>`).join("");
   view="dashboard"; currentId=null; render(); startPolling();
 }
 function toggleSidebar(force){ const sb=document.getElementById("sidebar"), sc=document.getElementById("sbScrim"); if(!sb)return; const open=force===undefined?!sb.classList.contains("open"):force; sb.classList.toggle("open",open); if(sc)sc.classList.toggle("show",open); }
-async function refresh(){ toast("Vernieuwen…"); try{ await loadTickets(); render(); toast("Bijgewerkt"); }catch(e){ toast("Kon niet vernieuwen"); } }
+async function refresh(){
+  toast("Vernieuwen…");
+  const keepDraft=view==="settings"&&settingsDirty();
+  try{
+    await Promise.all([loadTickets(), keepDraft?null:loadSettings()]);
+    if(view==="settings"&&!keepDraft) settingsDraft=clone(SETTINGS);
+    render(); toast(keepDraft?"Tickets bijgewerkt — je niet-opgeslagen instellingen zijn behouden":"Bijgewerkt");
+  }catch(e){ toast("Kon niet vernieuwen"); }
+}
 
 /* ===================== VISIBILITY ===================== */
 function isFollower(t){ return (t.followers||[]).some(x=>(x.upn||"").toLowerCase()===currentUser.upn); }
@@ -276,8 +287,19 @@ function visibleTickets(){ return allVisible().filter(t=>!t.archived); }
 function archivedTickets(){ return allVisible().filter(t=>t.archived); }
 function counts(){ const c={open:0,progress:0,done:0,closed:0}; visibleTickets().forEach(t=>c[t.status]!==undefined&&c[t.status]++); return c; }
 function setNav(){ document.querySelectorAll(".nav-item[data-nav]").forEach(e=>e.classList.toggle("active", e.dataset.nav===view && !currentId)); }
-function go(v){ view=v; currentId=null; if(document.getElementById("sbScrim"))toggleSidebar(false); render(); }
-function render(){ if(!currentUser)return; renderSidebar(); setNav(); if(view==="dashboard")renderDashboard(); else if(view==="list")renderListView(); else if(view==="archive")renderArchive(); else if(view==="detail")renderDetail(); }
+function confirmLeave(next){
+  if(view!=="settings"||next==="settings"||!settingsDirty()) return true;
+  return confirm("Je hebt niet-opgeslagen instellingen. Pagina verlaten zonder op te slaan?");
+}
+function go(v){
+  if(document.getElementById("sbScrim"))toggleSidebar(false);
+  if(v==="settings"&&view==="settings") return;
+  if(!confirmLeave(v)) return;
+  view=v; currentId=null;
+  if(v==="settings") settingsDraft=clone(SETTINGS);
+  render();
+}
+function render(){ if(!currentUser)return; renderSidebar(); setNav(); if(view==="dashboard")renderDashboard(); else if(view==="list")renderListView(); else if(view==="archive")renderArchive(); else if(view==="detail")renderDetail(); else if(view==="settings")renderSettings(); }
 function renderSidebar(){
   const c=counts();
   document.getElementById("sbStatus").innerHTML=Object.keys(STATUS).map(k=>`<div class="sb-link" onclick="quick('status','${k}')"><span class="dot" style="background:${STATUS[k].color}"></span><span class="lbl">${STATUS[k].label}</span><span class="cnt">${c[k]}</span></div>`).join("");
@@ -289,10 +311,11 @@ function renderSidebar(){
   q+=`<div class="sb-link" onclick="quick('subcategory','Artikelen aanmaken')"><span class="dot" style="background:var(--sales)"></span><span class="lbl">Artikelen aanmaken</span><span class="cnt">${cA}</span></div>`;
   q+=`<div class="sb-link" onclick="quick('special','highprio')"><span class="dot" style="background:var(--p-high)"></span><span class="lbl">Hoge prioriteit</span><span class="cnt">${cH}</span></div>`;
   q+=`<div class="sb-link" onclick="quick('special','unassigned')"><span class="dot" style="background:var(--faint)"></span><span class="lbl">Niet toegewezen</span><span class="cnt">${cU}</span></div>`;
-  if(TEAM.includes(currentUser.name)){ const mine=vt.filter(t=>t.assignee===currentUser.name&&t.status!=="closed").length; q+=`<div class="sb-link" onclick="quick('assignee','${esc(currentUser.name)}')"><span class="dot" style="background:var(--primary)"></span><span class="lbl">Aan mij toegewezen</span><span class="cnt">${mine}</span></div>`; }
+  const me=myTeamName();
+  if(me){ const mine=vt.filter(t=>t.assignee===me&&t.status!=="closed").length; q+=`<div class="sb-link" onclick="quick('assignee','${jsq(me)}')"><span class="dot" style="background:var(--primary)"></span><span class="lbl">Aan mij toegewezen</span><span class="cnt">${mine}</span></div>`; }
   document.getElementById("sbQuick").innerHTML=q;
 }
-function quick(type,v){ filter={q:"",category:"",subcategory:"",status:"",assignee:"",special:""}; if(type==="status")filter.status=v; else if(type==="special")filter.special=v; else if(type==="assignee")filter.assignee=v; else if(type==="subcategory")filter.subcategory=v; view="list"; render(); }
+function quick(type,v){ if(document.getElementById("sbScrim"))toggleSidebar(false); if(!confirmLeave("list")) return; filter={q:"",category:"",subcategory:"",status:"",assignee:"",special:""}; if(type==="status")filter.status=v; else if(type==="special")filter.special=v; else if(type==="assignee")filter.assignee=v; else if(type==="subcategory")filter.subcategory=v; view="list"; render(); }
 
 /* ===================== DASHBOARD / LIST / ARCHIVE ===================== */
 function renderDashboard(){
@@ -328,7 +351,7 @@ function renderListView(){
       <select class="filter" id="fCat" onchange="filter.category=this.value;renderList()"><option value="">Alle categorieën</option><option>Verkoop</option><option>Technisch</option></select>
       <select class="filter" id="fSub" onchange="filter.subcategory=this.value==='Alle onderdelen'?'':this.value;renderList()">${subOpts.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="filter" id="fStatus" onchange="filter.status=this.value;renderList()"><option value="">Alle statussen</option>${Object.keys(STATUS).map(k=>`<option value="${k}">${STATUS[k].label}</option>`).join("")}</select>
-      <select class="filter" id="fAssignee" onchange="filter.assignee=this.value;renderList()"><option value="">Alle behandelaars</option>${TEAM.map(n=>`<option>${esc(n)}</option>`).join("")}</select>
+      <select class="filter" id="fAssignee" onchange="filter.assignee=this.value;renderList()"><option value="">Alle behandelaars</option>${[...new Set([...teamNames(),...visibleTickets().map(t=>t.assignee||"Niet toegewezen")])].map(n=>`<option>${esc(n)}</option>`).join("")}</select>
     </div><div id="listResults"></div>`;
   document.getElementById("q").value=filter.q; document.getElementById("fCat").value=filter.category; document.getElementById("fSub").value=filter.subcategory||"Alle onderdelen"; document.getElementById("fStatus").value=filter.status; document.getElementById("fAssignee").value=filter.assignee;
   renderList();
@@ -366,6 +389,7 @@ function openNew(){
   document.querySelectorAll("#catSeg button").forEach(b=>b.classList.remove("active"));
   document.getElementById("subField").classList.add("hidden"); document.getElementById("dynArea").classList.add("hidden");
   document.getElementById("stepHint").classList.remove("hidden"); document.getElementById("f_prio").value="mid";
+  document.getElementById("f_assignee").innerHTML=teamNames().map(n=>`<option>${esc(n)}</option>`).join("");
   document.getElementById("f_assignee").value="Niet toegewezen"; document.getElementById("assigneeField").classList.toggle("hidden",!isAdmin());
   document.getElementById("dynFields").innerHTML=""; document.getElementById("saveBtn").disabled=false; document.getElementById("saveBtn").textContent="Ticket aanmaken";
   document.getElementById("overlay").classList.add("show");
@@ -442,6 +466,7 @@ async function saveTicket(){
 /* ===================== DETAIL ===================== */
 function findTicket(itemId){ return tickets.find(t=>t.itemId===itemId); }
 async function openDetail(itemId){
+  if(!confirmLeave("detail")) return;
   currentId=itemId; view="detail";
   document.querySelectorAll(".nav-item[data-nav]").forEach(e=>e.classList.remove("active"));
   detailTicket=findTicket(itemId); replyFiles=[]; replyInternal=false;
@@ -507,7 +532,7 @@ function renderDetail(){
       ${fieldsCard}
       ${shareCard(t)}
       <div class="panel-card pc-pad"><div style="font-size:15px;font-weight:700;margin-bottom:14px">Bijwerken</div>
-        ${canAssign?`<div class="upd-field"><label>Toegewezen aan (behandelaar)</label><select onchange="updateField('assignee',this.value)">${TEAM.map(n=>`<option ${t.assignee===n?"selected":""}>${esc(n)}</option>`).join("")}</select></div>`:`<div class="upd-field"><label>Behandelaar</label></div><div class="lockrow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${esc(t.assignee||"Niet toegewezen")} — enkel een beheerder kan dit wijzigen</div>`}
+        ${canAssign?`<div class="upd-field"><label>Toegewezen aan (behandelaar)</label><select onchange="updateField('assignee',this.value)">${assigneeOptions(t.assignee).map(n=>`<option ${t.assignee===n?"selected":""}>${esc(n)}</option>`).join("")}</select></div>`:`<div class="upd-field"><label>Behandelaar</label></div><div class="lockrow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${esc(t.assignee||"Niet toegewezen")} — enkel een beheerder kan dit wijzigen</div>`}
         <div class="upd-field"><label>Status</label><select onchange="updateField('status',this.value)">${Object.keys(STATUS).map(k=>`<option value="${k}" ${t.status===k?"selected":""}>${STATUS[k].label}</option>`).join("")}</select></div>
         <div class="upd-field"><label>Prioriteit</label><select onchange="updateField('priority',this.value)">${Object.keys(PRIO).map(k=>`<option value="${k}" ${t.priority===k?"selected":""}>${PRIO[k].label}</option>`).join("")}</select></div>
         <button class="btn btn-ghost btn-block" onclick="toggleArchive()" style="margin-bottom:10px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>${t.archived?"Herstellen uit archief":"Archiveren"}</button>
@@ -573,7 +598,8 @@ async function sendReply(){
     detailTicket.messages.push({author:currentUser.name,internal:replyInternal,ts:Date.now(),text:txt,attachments:att});
     await patchTicket(detailTicket.itemId,{[COL.MessagesJson]:JSON.stringify(detailTicket.messages)});
     const wasInt=replyInternal;
-    if(!wasInt){ const snip=txt?(txt.replace(/<[^>]+>/g," ").slice(0,120)):(att.length?att.length+" bijlage(n) toegevoegd":""); notifyUpdate(detailTicket, ["Nieuw bericht van "+currentUser.name+": "+snip]); }
+    const snip=txt?htmlToText(txt).slice(0,160):(att.length?att.length+" bijlage(n) toegevoegd":"");
+    notifyUpdate(wasInt?"internal":"message", detailTicket, [(wasInt?"Interne notitie van ":"Nieuw bericht van ")+currentUser.name+": "+snip], att);
     replyFiles=[]; replyInternal=false; renderDetail(); toast(wasInt?"Interne notitie toegevoegd":"Bericht verstuurd");
   }catch(e){ toast("Versturen mislukt"); btn.disabled=false; }
 }
@@ -586,14 +612,17 @@ async function updateField(field,value){
     await patchTicket(detailTicket.itemId,{[map[field]]:value}); renderDetail(); renderSidebar(); toast("Ticket bijgewerkt");
     const lbl={status:"Status",priority:"Prioriteit",assignee:"Behandelaar"}[field];
     const disp=v=>field==="status"?(STATUS[v]?STATUS[v].label:v):field==="priority"?(PRIO[v]?PRIO[v].label:v):v;
-    if(prev!==value) notifyUpdate(detailTicket, [lbl+" gewijzigd van "+disp(prev)+" naar "+disp(value)+" door "+currentUser.name]);
+    if(prev!==value){
+      const line=lbl+" gewijzigd van "+disp(prev)+" naar "+disp(value)+" door "+currentUser.name;
+      if(field==="status") notifyStatus(detailTicket,[line]); else notifyUpdate(field, detailTicket, [line]);
+    }
   }
   catch(e){ detailTicket[field]=prev; renderDetail(); toast("Bijwerken mislukt"); }
 }
 async function toggleArchive(){
   detailTicket.archived=!detailTicket.archived;
   try{ await patchTicket(detailTicket.itemId,{[COL.Archived]:detailTicket.archived}); const a=detailTicket.archived; renderDetail(); renderSidebar(); toast(a?"Ticket gearchiveerd":"Ticket hersteld uit archief");
-    notifyUpdate(detailTicket, [a?"Ticket gearchiveerd door "+currentUser.name:"Ticket hersteld uit archief door "+currentUser.name]); }
+    notifyUpdate("archive", detailTicket, [a?"Ticket gearchiveerd door "+currentUser.name:"Ticket hersteld uit archief door "+currentUser.name]); }
   catch(e){ detailTicket.archived=!detailTicket.archived; toast("Archiveren mislukt"); }
 }
 async function downloadAtt(itemId){ try{ const url=await attachmentDownloadUrl(itemId); window.open(url,"_blank"); }catch(e){ toast("Bijlage kon niet geopend worden"); } }
@@ -626,7 +655,7 @@ async function addFollower(upn,name){
   if(detailTicket.followers.some(x=>(x.upn||"").toLowerCase()===upn)){ toast("Al gedeeld met deze collega"); return; }
   detailTicket.followers.push({upn, name:name||upn});
   try{ await persistFollowers(); renderDetail();
-    sendMail([upn], `Ticket ${detailTicket.ref} met je gedeeld`, buildShareEmail(detailTicket, name||upn));
+    notifyShared(detailTicket, upn, name||upn, ["Ticket gedeeld met "+(name||upn)+" door "+currentUser.name]);
     toast(`Gedeeld met ${name||upn}`);
   }catch(e){ detailTicket.followers=detailTicket.followers.filter(x=>(x.upn||"").toLowerCase()!==upn); toast("Delen mislukt"); }
 }
@@ -648,9 +677,9 @@ async function removeFollower(upn){
  * @param {string}   html      - HTML-body van de mail
  */
 async function sendMail(toEmails, subject, html){
-  if(!CONFIG.mailWorker){ console.warn("sendMail: mailWorker niet geconfigureerd in CONFIG"); return; }
+  if(!CONFIG.mailWorker){ console.warn("sendMail: mailWorker niet geconfigureerd in CONFIG"); return false; }
   const recipients=(Array.isArray(toEmails)?toEmails:[toEmails]).filter(e=>e&&e.includes("@"));
-  if(!recipients.length) return;
+  if(!recipients.length) return false;
   try{
     const res=await fetch(CONFIG.mailWorker,{
       method:"POST",
@@ -660,10 +689,13 @@ async function sendMail(toEmails, subject, html){
     if(!res.ok){
       const txt=await res.text();
       console.warn("sendMail: Worker antwoordde",res.status,txt.slice(0,200));
+      return false;
     }
+    return true;
   }catch(e){
     // Mail-fouten mogen de app niet blokkeren — stil loggen
     console.warn("sendMail mislukt:",e.message);
+    return false;
   }
 }
 const statusLabel=k=>STATUS[k]?STATUS[k].label:k, prioLabel=k=>PRIO[k]?PRIO[k].label:k;
@@ -671,6 +703,8 @@ function emailShell(title, intro, rows, ticket, extraTable=""){
   const rowsHtml=rows.map(r=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">${r[0]}</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${r[1]}</td></tr>`).join("");
   const base=CONFIG.redirectUri||"#";
   const link=ticket&&ticket.itemId?`${base}#ticket-${ticket.itemId}`:base;
+  const head=ticket?`<div style="font-size:15px;font-weight:700;color:#111826;margin-bottom:4px">${esc(ticket.subject)}</div>
+        <div style="font-size:12px;color:#98a2b3;margin-bottom:10px">${esc(ticket.ref)}</div>`:"";
   const logoUrl=`${base}/logo.jpg`;
   return `<div style="margin:0;padding:24px;background:#eef1f4;font-family:Inter,Segoe UI,Arial,sans-serif">
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e7ebf0;border-radius:14px;overflow:hidden">
@@ -681,19 +715,18 @@ function emailShell(title, intro, rows, ticket, extraTable=""){
       <div style="font-size:18px;font-weight:750;color:#111826;letter-spacing:-.3px;margin-bottom:6px">${title}</div>
       <div style="font-size:13.5px;color:#5b6677;line-height:1.55;margin-bottom:18px;mso-color-alt:#5b6677">${intro}</div>
       <div style="background:#f8fafc;border:1px solid #eef1f5;border-radius:10px;padding:14px 16px;margin-bottom:20px">
-        <div style="font-size:15px;font-weight:700;color:#111826;margin-bottom:4px">${esc(ticket.subject)}</div>
-        <div style="font-size:12px;color:#98a2b3;margin-bottom:10px">${esc(ticket.ref)}</div>
+        ${head}
         ${rows.length?`<table style="width:100%;border-collapse:collapse">${rowsHtml}</table>`:""}
         ${extraTable}
       </div>
-      <a href="${link}" style="display:inline-block;background:#f37a2b;color:#fff;text-decoration:none;font-size:13.5px;font-weight:600;padding:11px 20px;border-radius:9px">Ticket openen</a>
+      <a href="${link}" style="display:inline-block;background:#f37a2b;color:#fff;text-decoration:none;font-size:13.5px;font-weight:600;padding:11px 20px;border-radius:9px">${ticket?"Ticket openen":"Support Desk openen"}</a>
       <div style="font-size:11.5px;color:#98a2b3;margin-top:22px;border-top:1px solid #eef1f5;padding-top:14px">Automatisch verstuurd door Verpa Support · Sales Support.</div>
     </div>
   </div></div>`;
 }
 function buildNewTicketEmail(t){ return emailShell("Nieuw ticket ingediend", `Er is een nieuw ticket aangemaakt door <b>${esc(t.author)}</b>. Als beheerder kun je het oppakken en toewijzen.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)],["Omschrijving", esc((t.description||"—").slice(0,200))]], t); }
-function buildUpdateEmail(t, lines, attachments=[]){
+function buildUpdateEmail(t, lines, attachments=[], internal=false){
   const linesHtml=lines.map(l=>`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Update</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(l)}</td></tr>`).join("");
   const attHtml=attachments&&attachments.length?`<tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Bijlagen</td><td style="padding:7px 0;font-size:13px">${attachments.map(a=>`<div style="margin-bottom:4px"><a href="${a.webUrl}" style="color:#f37a2b;text-decoration:none;font-weight:500">📎 ${esc(a.name)}</a></div>`).join("")}</td></tr>`:"";
   const extraTable=`<table style="width:100%;border-collapse:collapse">
@@ -703,27 +736,337 @@ function buildUpdateEmail(t, lines, attachments=[]){
     <tr><td style="padding:7px 0;color:#5b6677;font-size:13px;width:150px;vertical-align:top">Behandelaar</td><td style="padding:7px 0;color:#111826;font-size:13px;font-weight:600">${esc(t.assignee||"—")}</td></tr>
     ${attHtml}
   </table>`;
-  return emailShell("Er is een update op je ticket", "Het ticket dat je hebt ingediend of volgt, is bijgewerkt.", [], t, extraTable); }
+  return internal
+    ? emailShell("Nieuwe interne notitie", "Er is een interne notitie toegevoegd aan dit ticket. Deze melding gaat enkel naar het team.", [], t, extraTable)
+    : emailShell("Er is een update op een ticket", "Een ticket dat je hebt ingediend, behandelt of volgt, is bijgewerkt.", [], t, extraTable); }
+function buildConfirmEmail(t){ return emailShell("We hebben je ticket ontvangen", `Bedankt, <b>${esc(t.author)}</b>. Je ticket is geregistreerd. Via de knop hieronder volg je het gesprek op.`,
+  [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)]], t); }
+function buildTestEmail(){ const n=SETTINGS.notifications; return emailShell("Testmail geslaagd", `Als je deze mail leest, werkt de mailverzending van Verpa Support. Verstuurd door <b>${esc(currentUser.name)}</b> vanuit de instellingen.`,
+  [["Meldingen", n.enabled?"Ingeschakeld":"Uitgeschakeld"],["Verstuurd op", fmtDate(Date.now())]], null); }
 function buildShareEmail(t, name){ return emailShell("Een ticket is met je gedeeld", `<b>${esc(name)}</b>, dit ticket is met je gedeeld zodat je mee kunt opvolgen. Je ontvangt voortaan ook updates.`,
   [["Categorie", esc(t.category)+(t.subcategory?" · "+esc(t.subcategory):"")],["Prioriteit", prioLabel(t.priority)],["Status", statusLabel(t.status)],["Ingediend door", esc(t.author)]], t); }
-function allTicketRecipients(t){
-  const set=new Set();
-  adminEmails.forEach(e=>{ if(e) set.add(e.toLowerCase()); });
-  if(t.ownerUpn) set.add(t.ownerUpn.toLowerCase());
-  (t.followers||[]).forEach(f=>{ if(f.upn) set.add(f.upn.toLowerCase()); });
-  set.delete((currentUser.upn||"").toLowerCase());
+/* ---- Meldingen: wie krijgt welke mail (volgens Instellingen) ---- */
+function assigneeEmail(name){
+  if(!name||name==="Niet toegewezen") return "";
+  const m=SETTINGS.team.find(x=>x.name===name);
+  return m&&m.email?m.email.toLowerCase():"";
+}
+function eventRecipients(evKey, t, opts={}){
+  const n=SETTINGS.notifications; if(!n.enabled) return [];
+  const e=n.events[evKey]; if(!e) return [];
+  const on=k=>e[k]&&!(opts.omit||[]).includes(k);
+  const set=new Set(); const add=x=>{ x=(x||"").trim().toLowerCase(); if(x&&x.includes("@")) set.add(x); };
+  if(on("beheerders")) adminEmails.forEach(add);
+  if(on("indiener")) add(t.ownerUpn);
+  if(on("behandelaar")) add(assigneeEmail(t.assignee));
+  if(on("volgers")) (t.followers||[]).forEach(f=>add(f.upn));
+  if(n.excludeActor) set.delete((currentUser.upn||"").toLowerCase());
+  (opts.skip||[]).forEach(x=>set.delete((x||"").toLowerCase()));
   return [...set];
 }
 function notifyNewTicket(t){
-  // Alle admins ontvangen een mail bij elk nieuw ticket, ongeacht wie het aanmaakt
-  const toAdmins=adminEmails.filter(e=>e.toLowerCase()!==(currentUser.upn||"").toLowerCase());
-  if(toAdmins.length) sendMail(toAdmins, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
+  const n=SETTINGS.notifications; if(!n.enabled) return;
+  const e=n.events.created;
+  // Ontvangstbevestiging: gaat naar de indiener, ook al deed die zelf de actie
+  const confirm=e.indiener&&t.ownerUpn;
+  if(confirm) sendMail([t.ownerUpn], `Ticket ${t.ref} ontvangen: ${t.subject}`, buildConfirmEmail(t));
+  const to=eventRecipients("created", t, {omit:["indiener"], skip:confirm?[t.ownerUpn]:[]});
+  if(to.length) sendMail(to, `Nieuw ticket ${t.ref}: ${t.subject}`, buildNewTicketEmail(t));
 }
-function notifyUpdate(t, lines, attachments=[]){
-  const to=allTicketRecipients(t);
-  if(!to.length) return;
-  sendMail(to, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines, attachments));
+function notifyUpdate(evKey, t, lines, attachments=[]){
+  const to=eventRecipients(evKey, t); if(!to.length) return;
+  const internal=evKey==="internal";
+  sendMail(to, `${internal?"Interne notitie":"Update"} ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines, attachments, internal));
 }
+function notifyStatus(t, lines){
+  const e=SETTINGS.notifications.events.status;
+  if(!(e.statuses||[]).includes(t.status)) return;
+  notifyUpdate("status", t, lines);
+}
+function notifyShared(t, upn, name, lines){
+  const n=SETTINGS.notifications; if(!n.enabled) return;
+  upn=(upn||"").toLowerCase();
+  // Kolom Volgers = enkel de nieuwe collega, met een uitnodigingsmail
+  if(n.events.shared.volgers && !(n.excludeActor && upn===currentUser.upn)) sendMail([upn], `Ticket ${t.ref} met je gedeeld`, buildShareEmail(t, name));
+  const others=eventRecipients("shared", t, {omit:["volgers"], skip:[upn]});
+  if(others.length) sendMail(others, `Update ticket ${t.ref}: ${t.subject}`, buildUpdateEmail(t, lines));
+}
+
+/* ===================== INSTELLINGEN (enkel beheerders) ===================== */
+/* Opgeslagen als JSON in de documentbibliotheek (CONFIG.settingsFile), zodat
+   de instellingen gedeeld zijn en iedere gebruiker ze kan lezen: de mails
+   worden verstuurd vanuit de browser van wie de wijziging doet.            */
+const RECIPIENTS=[
+  {k:"indiener",    label:"Indiener",    hint:"maakte het ticket aan"},
+  {k:"behandelaar", label:"Behandelaar", hint:"toegewezen teamlid"},
+  {k:"volgers",     label:"Volgers",     hint:"collega's met wie gedeeld"},
+  {k:"beheerders",  label:"Beheerders",  hint:"lijst hieronder"}
+];
+const ALL_R=RECIPIENTS.map(r=>r.k);
+const NOTIFY_EVENTS=[
+  {k:"created",  label:"Nieuw ticket",             desc:"Een ticket wordt aangemaakt.",
+   allow:["indiener","behandelaar","beheerders"], notes:{indiener:"ontvangstbevestiging", behandelaar:"indien meteen toegewezen", volgers:"nog geen volgers bij aanmaak"}},
+  {k:"status",   label:"Status gewijzigd",         desc:"Enkel wanneer de nieuwe status hieronder aangeduid is.", allow:ALL_R, statusFilter:true},
+  {k:"priority", label:"Prioriteit gewijzigd",     desc:"Laag, Gemiddeld of Hoog.", allow:ALL_R},
+  {k:"assignee", label:"Behandelaar gewijzigd",    desc:"Een ticket krijgt een (andere) behandelaar.", allow:ALL_R, notes:{behandelaar:"de nieuwe behandelaar"}},
+  {k:"message",  label:"Nieuw bericht",            desc:"Een zichtbaar antwoord in het gesprek, met eventuele bijlagen.", allow:ALL_R},
+  {k:"internal", label:"Interne notitie",          desc:"Een notitie die enkel voor het team bedoeld is.",
+   allow:["behandelaar","beheerders"], notes:{indiener:"nooit bij interne notities", volgers:"nooit bij interne notities"}},
+  {k:"archive",  label:"Gearchiveerd of hersteld", desc:"Het ticket gaat naar of uit het archief.", allow:ALL_R},
+  {k:"shared",   label:"Gedeeld met collega",      desc:"Iemand deelt het ticket met een collega.", allow:ALL_R, notes:{volgers:"enkel de nieuwe collega"}}
+];
+/* Standaardwaarden = het gedrag van v5, zodat er na de update niets verandert.
+   Enige toevoeging: de nieuwe behandelaar krijgt een mail bij toewijzing. */
+const DEFAULT_SETTINGS={
+  notifications:{
+    enabled:true, excludeActor:true,
+    events:{
+      created: {indiener:false,behandelaar:false,volgers:false,beheerders:true},
+      status:  {indiener:true, behandelaar:false,volgers:true, beheerders:true, statuses:["open","progress","done","closed"]},
+      priority:{indiener:true, behandelaar:false,volgers:true, beheerders:true},
+      assignee:{indiener:true, behandelaar:true, volgers:true, beheerders:true},
+      message: {indiener:true, behandelaar:false,volgers:true, beheerders:true},
+      internal:{indiener:false,behandelaar:false,volgers:false,beheerders:false},
+      archive: {indiener:true, behandelaar:false,volgers:true, beheerders:true},
+      shared:  {indiener:false,behandelaar:false,volgers:true, beheerders:false}
+    }
+  },
+  team:[
+    {name:"Lukas Vanderheyden", email:"lukas@verpa.be"},
+    {name:"Aniel Haeyaert",     email:"aniel@verpa.be"},
+    {name:"Sten Huygens",       email:"sten.huygens@verpa.be"},
+    {name:"Yana Verspreet",     email:""}
+  ]
+};
+let SETTINGS=null, settingsETag=null, settingsLoadedAt=0, settingsLoadError=false, settingsDraft=null, settingsSaving=false;
+
+function mergeSettings(raw){
+  const d=DEFAULT_SETTINGS, r=raw||{}, n=r.notifications||{};
+  const out={
+    version:1,
+    notifications:{
+      enabled:      n.enabled!==undefined?!!n.enabled:d.notifications.enabled,
+      excludeActor: n.excludeActor!==undefined?!!n.excludeActor:d.notifications.excludeActor,
+      events:{}
+    },
+    team: Array.isArray(r.team)
+      ? r.team.filter(m=>m&&String(m.name||"").trim()).map(m=>({name:String(m.name).trim(), email:String(m.email||"").trim().toLowerCase()}))
+      : clone(d.team),
+    adminEmails: Array.isArray(r.adminEmails)
+      ? [...new Set(r.adminEmails.map(e=>String(e).trim().toLowerCase()).filter(Boolean))]
+      : (CONFIG.adminEmails||[]).map(e=>e.toLowerCase()),
+    updatedBy: r.updatedBy||"", updatedAt: r.updatedAt||0
+  };
+  NOTIFY_EVENTS.forEach(ev=>{
+    const base=d.notifications.events[ev.k], got=(n.events||{})[ev.k]||{}, e={};
+    ALL_R.forEach(k=>{ e[k]=ev.allow.includes(k) && (got[k]!==undefined?!!got[k]:base[k]); });
+    if(ev.statusFilter){ const src=Array.isArray(got.statuses)?got.statuses:base.statuses; e.statuses=Object.keys(STATUS).filter(s=>src.includes(s)); }
+    out.notifications.events[ev.k]=e;
+  });
+  return out;
+}
+SETTINGS=mergeSettings(null);
+
+function applySettings(){ adminEmails=SETTINGS.adminEmails.slice(); }
+function teamNames(){ return ["Niet toegewezen", ...SETTINGS.team.map(m=>m.name)]; }
+function assigneeOptions(current){ const names=teamNames(); if(current&&!names.includes(current)) names.push(current); return names; }
+function myTeamName(){ const m=SETTINGS.team.find(x=>(x.email&&x.email===currentUser.upn)||x.name===currentUser.name); return m?m.name:null; }
+function settingsPath(){ return (CONFIG.settingsFile||`${CONFIG.attachFolder}/_instellingen/instellingen.json`).split("/").map(encodeURIComponent).join("/"); }
+
+async function loadSettings(){
+  try{
+    const meta=await graph(`/sites/${SITE_ID}/drive/root:/${settingsPath()}?$select=id,eTag,@microsoft.graph.downloadUrl`);
+    const res=await fetch(meta["@microsoft.graph.downloadUrl"],{cache:"no-store"});
+    if(!res.ok) throw new Error("Download instellingen: "+res.status);
+    SETTINGS=mergeSettings(JSON.parse(await res.text()));
+    settingsETag=meta.eTag||null; settingsLoadError=false;
+  }catch(e){
+    if(String(e.message).startsWith("Graph 404")){ SETTINGS=mergeSettings(null); settingsETag=null; settingsLoadError=false; }
+    else { settingsLoadError=true; console.warn("Instellingen konden niet geladen worden — vorige/standaardwaarden blijven actief:", e.message); }
+  }
+  settingsLoadedAt=Date.now(); applySettings();
+}
+
+const settingsKey=s=>JSON.stringify({n:s.notifications, t:s.team, a:s.adminEmails});
+function settingsDirty(){ return !!settingsDraft && settingsKey(settingsDraft)!==settingsKey(SETTINGS); }
+function validateSettings(s){
+  const seen=new Set();
+  for(const m of s.team){
+    const n=(m.name||"").trim();
+    if(!n) return "Elke behandelaar heeft een naam nodig";
+    if(n.toLowerCase()==="niet toegewezen") return "\"Niet toegewezen\" kan geen naam van een behandelaar zijn";
+    if(seen.has(n.toLowerCase())) return `Behandelaar "${n}" staat er twee keer in`;
+    seen.add(n.toLowerCase());
+    if(m.email&&!EMAIL_RE.test(m.email.trim())) return `Het e-mailadres van ${n} is ongeldig`;
+  }
+  const st=s.notifications.events.status;
+  if(!st.statuses.length && ALL_R.some(k=>st[k])) return "Duid bij 'Status gewijzigd' minstens één status aan, of vink de ontvangers uit";
+  return "";
+}
+
+async function saveSettings(){
+  if(!isAdmin()||settingsSaving||!settingsDirty()) return;
+  if(settingsLoadError){ toast("De instellingen konden niet geladen worden. Klik eerst op Vernieuwen."); return; }
+  const err=validateSettings(settingsDraft); if(err){ toast(err); return; }
+  const payload=mergeSettings(settingsDraft);
+  payload.updatedBy=currentUser.name; payload.updatedAt=Date.now();
+  settingsSaving=true; updateSaveBar();
+  try{
+    const headers=settingsETag?{"If-Match":settingsETag}:{};
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+    const item=await graph(`/sites/${SITE_ID}/drive/root:/${settingsPath()}:/content`,{method:"PUT",body:blob,headers});
+    SETTINGS=payload; settingsETag=(item&&item.eTag)||null; applySettings();
+    settingsDraft=clone(SETTINGS);
+    settingsSaving=false; renderSettings(); renderSidebar(); toast("Instellingen opgeslagen");
+  }catch(e){
+    settingsSaving=false; updateSaveBar();
+    console.error("[saveSettings]", e.message);
+    if(String(e.message).startsWith("Graph 412")){
+      if(confirm("Een andere beheerder heeft de instellingen intussen gewijzigd. De nieuwste versie laden? Je eigen wijzigingen gaan dan verloren.")){
+        await loadSettings(); settingsDraft=clone(SETTINGS); renderSettings(); renderSidebar();
+      }
+    } else toast("Opslaan mislukt — controleer je rechten op de documentbibliotheek");
+  }
+}
+function discardSettings(){ settingsDraft=clone(SETTINGS); renderSettings(); toast("Wijzigingen ongedaan gemaakt"); }
+
+/* ---- Weergave ---- */
+function renderSettings(){
+  const el=document.getElementById("view");
+  if(!isAdmin()){ el.innerHTML=`<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><h3>Geen toegang</h3><p>Enkel beheerders kunnen de instellingen bekijken en wijzigen.</p></div>`; return; }
+  if(!settingsDraft) settingsDraft=clone(SETTINGS);
+  const meta=SETTINGS.updatedAt
+    ? `Laatst gewijzigd door ${esc(SETTINGS.updatedBy||"onbekend")} op ${fmtDate(SETTINGS.updatedAt)}. Wijzigingen gelden voor iedereen.`
+    : "Nog niet aangepast: de standaardwaarden zijn actief. Wijzigingen gelden voor iedereen.";
+  el.innerHTML=`
+    <div class="page-head"><div><h2>Instellingen</h2><div class="sub">${meta}</div></div></div>
+    ${settingsLoadError?`<div class="set-alert"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><div>De opgeslagen instellingen konden niet geladen worden. Opslaan is uitgeschakeld tot je op <b>Vernieuwen</b> klikt, zodat je niets overschrijft.</div></div>`:""}
+    <div class="set-stack">
+      <section class="panel-card" id="setMail"></section>
+      <section class="panel-card nm-card" id="setMatrix"></section>
+      <div class="set-grid">
+        <section class="panel-card" id="setTeam"></section>
+        <section class="panel-card" id="setAdmins"></section>
+      </div>
+    </div>
+    <div class="set-savebar" id="setSaveBar">
+      <span class="msg" id="setSaveMsg"></span>
+      <button class="btn btn-ghost btn-sm" id="setDiscardBtn" onclick="discardSettings()">Ongedaan maken</button>
+      <button class="btn btn-primary btn-sm" id="setSaveBtn" onclick="saveSettings()">Instellingen opslaan</button>
+    </div>`;
+  renderSetMail(); renderSetMatrix(); renderSetTeam(); renderSetAdmins(); updateSaveBar();
+}
+function updateSaveBar(){
+  const bar=document.getElementById("setSaveBar"); if(!bar) return;
+  const dirty=settingsDirty();
+  bar.classList.toggle("dirty",dirty);
+  document.getElementById("setSaveMsg").textContent=settingsSaving?"Opslaan…":dirty?"Je hebt niet-opgeslagen wijzigingen":"Alle wijzigingen zijn opgeslagen";
+  const sb=document.getElementById("setSaveBtn");
+  sb.disabled=!dirty||settingsSaving||settingsLoadError; sb.textContent=settingsSaving?"Opslaan…":"Instellingen opslaan";
+  document.getElementById("setDiscardBtn").disabled=!dirty||settingsSaving;
+}
+function cardHead(title,desc){ return `<div class="set-head"><h3>${title}</h3>${desc?`<p>${desc}</p>`:""}</div>`; }
+function switchBtn(on,label,onclick){ return `<button type="button" role="switch" aria-checked="${on}" aria-label="${esc(label)}" class="sw ${on?"on":""}" onclick="${onclick}"><span class="switch"></span></button>`; }
+
+function renderSetMail(){
+  const n=settingsDraft.notifications;
+  document.getElementById("setMail").innerHTML=`
+    ${cardHead("E-mailmeldingen")}
+    <div class="set-row"><div><div class="sr-t">Meldingen versturen</div><div class="sr-d">Hoofdschakelaar voor alle automatische mails. Zet uit tijdens onderhoud of tests.</div></div>
+      ${switchBtn(n.enabled,"Meldingen versturen","setNotifyFlag('enabled',this)")}</div>
+    <div class="set-row"><div><div class="sr-t">Geen mail over je eigen wijzigingen</div><div class="sr-d">Wie een wijziging doet, krijgt daar zelf geen mail over. De ontvangstbevestiging voor de indiener wordt wel verstuurd.</div></div>
+      ${switchBtn(n.excludeActor,"Geen mail over je eigen wijzigingen","setNotifyFlag('excludeActor',this)")}</div>
+    <div class="set-row"><div><div class="sr-t">Testmail</div><div class="sr-d">Controleer of de mailverzending werkt. De mail gaat naar ${esc(currentUser.upn)}.</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="sendTestMail(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>Testmail sturen</button></div>`;
+}
+function renderSetMatrix(){
+  const n=settingsDraft.notifications;
+  const cell=(ev,r)=>{
+    const note=(ev.notes||{})[r.k], lbl=`${ev.label}: ${r.label}`;
+    if(!ev.allow.includes(r.k)) return `<td class="na" data-label="${r.label}"><span aria-label="${esc(lbl)} niet van toepassing">—</span>${note?`<small>${note}</small>`:""}</td>`;
+    const on=n.events[ev.k][r.k];
+    return `<td data-label="${r.label}"><label class="ck" data-label="${r.label}"><input type="checkbox" ${on?"checked":""} aria-label="${esc(lbl)}" onchange="setNotify('${ev.k}','${r.k}',this.checked)"><span class="box"></span></label>${note?`<small>${note}</small>`:""}</td>`;
+  };
+  const statusChips=()=>{ const sel=n.events.status.statuses; return `<div class="st-chips" role="group" aria-label="Statussen die een mail versturen">${Object.keys(STATUS).map(k=>{ const on=sel.includes(k); return `<button type="button" class="st-chip ${on?"on":""}" style="--c:${STATUS[k].color};--cb:${STATUS[k].bg}" aria-pressed="${on}" onclick="toggleNotifyStatus('${k}',this)">${STATUS[k].label}</button>`; }).join("")}</div>`; };
+  const box=document.getElementById("setMatrix");
+  box.classList.toggle("off",!n.enabled);
+  box.innerHTML=`
+    ${cardHead("Wie krijgt een mail bij welke wijziging?","Vink per wijziging aan welke personen die aan het ticket gekoppeld zijn een mail ontvangen. Iemand die in meerdere kolommen valt, krijgt één mail.")}
+    <div class="nm-off-note"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Meldingen staan uit. Er worden geen mails verstuurd, ongeacht de keuzes hieronder.</div>
+    <div class="nm-wrap"><table class="nmatrix">
+      <thead><tr><th class="ev" scope="col">Wijziging</th>${RECIPIENTS.map(r=>`<th scope="col">${r.label}<small>${r.hint}</small></th>`).join("")}</tr></thead>
+      <tbody>${NOTIFY_EVENTS.map(ev=>`<tr><th class="ev" scope="row"><div class="evl">${ev.label}</div><div class="evd">${ev.desc}</div>${ev.statusFilter?statusChips():""}</th>${RECIPIENTS.map(r=>cell(ev,r)).join("")}</tr>`).join("")}</tbody>
+    </table></div>`;
+}
+function renderSetTeam(){
+  const team=settingsDraft.team;
+  const rows=team.map((m,i)=>`
+    <div class="team-row ${m.email?"":"noemail"}" id="tm_${i}">
+      <input id="tmn_${i}" value="${esc(m.name)}" placeholder="Voor- en achternaam" aria-label="Naam behandelaar ${i+1}" oninput="setTeam(${i},'name',this.value)">
+      <input id="tme_${i}" type="email" value="${esc(m.email)}" placeholder="naam@verpa.be" aria-label="E-mailadres behandelaar ${i+1}" oninput="setTeam(${i},'email',this.value)">
+      <button class="icon-btn" title="Verwijderen" aria-label="Behandelaar ${esc(m.name||String(i+1))} verwijderen" onclick="removeTeam(${i})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+      <div class="warn">Zonder e-mailadres krijgt deze persoon geen mails als behandelaar.</div>
+    </div>`).join("");
+  document.getElementById("setTeam").innerHTML=`
+    ${cardHead("Behandelaars","Teamleden aan wie je tickets kunt toewijzen. Het e-mailadres wordt gebruikt voor de kolom Behandelaar. Een naam wijzigen past bestaande tickets niet aan.")}
+    <div class="team-list">
+      ${team.length?`<div class="team-row team-head"><span>Naam</span><span>E-mailadres</span><span></span></div>${rows}`:`<div class="set-empty">Nog geen behandelaars. Tickets kunnen dan enkel op "Niet toegewezen" staan.</div>`}
+    </div>
+    <div class="set-foot"><button class="btn btn-ghost btn-sm" onclick="addTeam()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Behandelaar toevoegen</button></div>`;
+}
+function renderSetAdmins(){
+  const list=settingsDraft.adminEmails;
+  document.getElementById("setAdmins").innerHTML=`
+    ${cardHead("Beheerders","Ontvangers voor de kolom Beheerders. Wie beheerdersrechten heeft in de app, stel je in via de Azure AD-rol Admin.")}
+    <div class="adm-list">${list.length
+      ? `<div class="fchips">${list.map((e,i)=>`<span class="fchip">${esc(e)}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" role="button" tabindex="0" aria-label="${esc(e)} verwijderen" onclick="removeAdminEmail(${i})" onkeydown="if(event.key==='Enter')removeAdminEmail(${i})"><path d="M18 6 6 18M6 6l12 12"/></svg></span>`).join("")}</div>`
+      : `<div class="set-empty">Geen adressen. De kolom Beheerders verstuurt dan geen mails.</div>`}</div>
+    <div class="adm-add"><input id="admAdd" type="email" placeholder="naam@verpa.be" aria-label="E-mailadres beheerder toevoegen" onkeydown="if(event.key==='Enter')addAdminEmail()"><button class="btn btn-ghost btn-sm" onclick="addAdminEmail()">Toevoegen</button></div>`;
+}
+
+/* ---- Interactie ---- */
+function setNotify(ev,r,on){ settingsDraft.notifications.events[ev][r]=on; updateSaveBar(); }
+function setNotifyFlag(flag,btn){
+  const n=settingsDraft.notifications; n[flag]=!n[flag];
+  btn.classList.toggle("on",n[flag]); btn.setAttribute("aria-checked",n[flag]);
+  if(flag==="enabled"){ const m=document.getElementById("setMatrix"); if(m) m.classList.toggle("off",!n.enabled); }
+  updateSaveBar();
+}
+function toggleNotifyStatus(k,btn){
+  const e=settingsDraft.notifications.events.status, on=!e.statuses.includes(k);
+  e.statuses=Object.keys(STATUS).filter(s=>s===k?on:e.statuses.includes(s));
+  btn.classList.toggle("on",on); btn.setAttribute("aria-pressed",on); updateSaveBar();
+}
+function setTeam(i,key,v){
+  settingsDraft.team[i][key]=key==="email"?v.trim().toLowerCase():v;
+  if(key==="email"){ const r=document.getElementById("tm_"+i); if(r) r.classList.toggle("noemail",!v.trim()); }
+  updateSaveBar();
+}
+function addTeam(){
+  settingsDraft.team.push({name:"",email:""}); renderSetTeam(); updateSaveBar();
+  const el=document.getElementById("tmn_"+(settingsDraft.team.length-1)); if(el) el.focus();
+}
+function removeTeam(i){
+  const m=settingsDraft.team[i], name=(m.name||"").trim();
+  const open=name?tickets.filter(t=>t.assignee===name&&t.status!=="closed"&&!t.archived).length:0;
+  if(open&&!confirm(`${name} heeft nog ${open} actieve ticket${open===1?"":"s"}. Die blijven op deze naam staan tot je ze opnieuw toewijst. Toch verwijderen?`)) return;
+  settingsDraft.team.splice(i,1); renderSetTeam(); updateSaveBar();
+}
+function addAdminEmail(){
+  const el=document.getElementById("admAdd"), v=(el.value||"").trim().toLowerCase();
+  if(!EMAIL_RE.test(v)){ toast("Vul een geldig e-mailadres in"); el.focus(); return; }
+  if(settingsDraft.adminEmails.includes(v)){ toast("Dit adres staat al in de lijst"); return; }
+  settingsDraft.adminEmails.push(v); renderSetAdmins(); updateSaveBar();
+  document.getElementById("admAdd").focus();
+}
+function removeAdminEmail(i){ settingsDraft.adminEmails.splice(i,1); renderSetAdmins(); updateSaveBar(); }
+async function sendTestMail(btn){
+  btn.disabled=true;
+  const ok=await sendMail([currentUser.upn], "Testmail Verpa Support", buildTestEmail());
+  btn.disabled=false;
+  toast(ok?`Testmail verstuurd naar ${currentUser.upn}`:"Testmail mislukt — controleer de mailWorker in CONFIG (details in de console)");
+}
+window.addEventListener("beforeunload", e=>{ if(view==="settings"&&settingsDirty()){ e.preventDefault(); e.returnValue=""; } });
 
 /* ===================== DOCUMENTVIEWER ===================== */
 function openViewer(name){
@@ -766,6 +1109,7 @@ async function pollTickets(){
   const replyEditor=document.getElementById("replyEditor");
   const replyText=replyEditor?replyEditor.innerText.trim():"";
   try{
+    if(view!=="settings" && Date.now()-settingsLoadedAt>5*60*1000) await loadSettings();
     const before=ticketSignature();
     await loadTickets();
     if(ticketSignature()===before) return;
