@@ -871,17 +871,28 @@ function applySettings(){ adminEmails=SETTINGS.adminEmails.slice(); }
 function teamNames(){ return ["Niet toegewezen", ...SETTINGS.team.map(m=>m.name)]; }
 function assigneeOptions(current){ const names=teamNames(); if(current&&!names.includes(current)) names.push(current); return names; }
 function myTeamName(){ const m=SETTINGS.team.find(x=>(x.email&&x.email===currentUser.upn)||x.name===currentUser.name); return m?m.name:null; }
-function settingsPath(){ return (CONFIG.settingsFile||`${CONFIG.attachFolder}/_instellingen/instellingen.json`).split("/").map(encodeURIComponent).join("/"); }
+function settingsPath(){
+  // Elk pad-segment apart encoden, maar / is scheidingsteken en blijft /
+  const file=CONFIG.settingsFile||`${CONFIG.attachFolder}/_instellingen/instellingen.json`;
+  return file.split("/").map(s=>encodeURIComponent(s)).join("/");
+}
 
 async function loadSettings(){
   try{
+    // Haal metadata + download-URL op in één call.
+    // @microsoft.graph.downloadUrl is een pre-authenticated tijdelijke URL
+    // → geen Authorization-header nodig, werkt ook buiten Graph-domein.
     const meta=await graph(`/sites/${SITE_ID}/drive/root:/${settingsPath()}?$select=id,eTag,@microsoft.graph.downloadUrl`);
-    const res=await fetch(meta["@microsoft.graph.downloadUrl"],{cache:"no-store"});
-    if(!res.ok) throw new Error("Download instellingen: "+res.status);
+    settingsETag=meta.eTag||null;
+    const dlUrl=meta["@microsoft.graph.downloadUrl"];
+    if(!dlUrl) throw new Error("Geen download-URL in Graph-respons");
+    // Bewust zonder Authorization-header: dlUrl is self-authenticating
+    const res=await fetch(dlUrl,{cache:"no-store"});
+    if(!res.ok) throw new Error("Download instellingen mislukt: "+res.status);
     SETTINGS=mergeSettings(JSON.parse(await res.text()));
-    settingsETag=meta.eTag||null; settingsLoadError=false;
+    settingsLoadError=false;
   }catch(e){
-    if(String(e.message).startsWith("Graph 404")){ SETTINGS=mergeSettings(null); settingsETag=null; settingsLoadError=false; }
+    if(String(e.message).match(/Graph 404|itemNotFound/)){ SETTINGS=mergeSettings(null); settingsETag=null; settingsLoadError=false; }
     else { settingsLoadError=true; console.warn("Instellingen konden niet geladen worden — vorige/standaardwaarden blijven actief:", e.message); }
   }
   settingsLoadedAt=Date.now(); applySettings();
@@ -912,9 +923,21 @@ async function saveSettings(){
   payload.updatedBy=currentUser.name; payload.updatedAt=Date.now();
   settingsSaving=true; updateSaveBar();
   try{
-    const headers=settingsETag?{"If-Match":settingsETag}:{};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
-    const item=await graph(`/sites/${SITE_ID}/drive/root:/${settingsPath()}:/content`,{method:"PUT",body:blob,headers});
+    // PUT naar het bestand. Als If-Match leeg is, voeg geen header toe (eerste keer aanmaken).
+    // Graph maakt tussenliggende mappen automatisch aan.
+    const headers=settingsETag?{"If-Match":settingsETag}:{};
+    let item;
+    try{
+      item=await graph(`/sites/${SITE_ID}/drive/root:/${settingsPath()}:/content`,{method:"PUT",body:blob,headers});
+    }catch(putErr){
+      // Graph geeft soms 423 (Locked) of 409 (Conflict) als de map net aangemaakt wordt.
+      // Eén keer herproberen zonder If-Match lost dat op.
+      if(String(putErr.message).match(/Graph 4(09|23)/)){
+        await new Promise(r=>setTimeout(r,800));
+        item=await graph(`/sites/${SITE_ID}/drive/root:/${settingsPath()}:/content`,{method:"PUT",body:blob});
+      } else { throw putErr; }
+    }
     SETTINGS=payload; settingsETag=(item&&item.eTag)||null; applySettings();
     settingsDraft=clone(SETTINGS);
     settingsSaving=false; renderSettings(); renderSidebar(); toast("Instellingen opgeslagen");
@@ -925,7 +948,10 @@ async function saveSettings(){
       if(confirm("Een andere beheerder heeft de instellingen intussen gewijzigd. De nieuwste versie laden? Je eigen wijzigingen gaan dan verloren.")){
         await loadSettings(); settingsDraft=clone(SETTINGS); renderSettings(); renderSidebar();
       }
-    } else toast("Opslaan mislukt — controleer je rechten op de documentbibliotheek");
+    } else {
+      // Toon de fout in de console en geef een duidelijke melding
+      toast(`Opslaan mislukt (${e.message.slice(0,60)}) — controleer je rechten op de documentbibliotheek`);
+    }
   }
 }
 function discardSettings(){ settingsDraft=clone(SETTINGS); renderSettings(); toast("Wijzigingen ongedaan gemaakt"); }
