@@ -117,13 +117,43 @@ async function resolveIds(){
   await resolveColumns();
 }
 const NEEDED=["Ref","Category","Subcategory","Status","Priority","Assignee","Indiener","OwnerUpn","Description","FieldsJson","MessagesJson","Archived"];
+/* Bekende aliassen per kolom: als een kolom hernoemd wordt in SharePoint,
+   zoekt de app ook op deze alternatieve namen (case-insensitive).
+   Voeg hier extra aliassen toe als er in de toekomst opnieuw een kolom
+   hernoemd wordt — dan hoeft de code niet aangepast te worden. */
+const COL_ALIASES = {
+  Indiener:    ["indiener","author","author0","submitter","ingediend door","indiener0"],
+  Assignee:    ["assignee","behandelaar","toegewezen aan","assigned to"],
+  Category:    ["category","categorie"],
+  Subcategory: ["subcategory","subcategorie","onderdeel"],
+  Status:      ["status"],
+  Priority:    ["priority","prioriteit"],
+  Ref:         ["ref","referentie","reference"],
+  OwnerUpn:    ["ownerupn","owner","eigenaar"],
+  Description: ["description","omschrijving","beschrijving"],
+  FieldsJson:  ["fieldsjson","fields"],
+  MessagesJson:["messagesjson","messages","berichten"],
+  Archived:    ["archived","gearchiveerd"]
+};
 async function resolveColumns(){
   const d=await graph(`/sites/${SITE_ID}/lists/${LIST_ID}/columns?$select=name,displayName&$top=250`);
   const byName={}, byDisplay={};
   d.value.forEach(c=>{ if(c.name) byName[c.name.toLowerCase()]=c.name; if(c.displayName) byDisplay[c.displayName.toLowerCase()]=c.name; });
   COL={ Title:"Title" };
   const missing=[];
-  NEEDED.forEach(n=>{ const k=n.toLowerCase(); const internal=byName[k]||byDisplay[k]; if(internal) COL[n]=internal; else missing.push(n); });
+  NEEDED.forEach(n=>{
+    const k=n.toLowerCase();
+    // 1. Probeer exacte match op naam of weergavenaam
+    let internal=byName[k]||byDisplay[k];
+    // 2. Probeer aliassen
+    if(!internal && COL_ALIASES[n]){
+      for(const alias of COL_ALIASES[n]){
+        internal=byName[alias]||byDisplay[alias];
+        if(internal) { console.info(`Kolom "${n}" gevonden via alias "${alias}" → interne naam "${internal}"`); break; }
+      }
+    }
+    if(internal) COL[n]=internal; else missing.push(n);
+  });
   if(missing.length) throw new Error("Ontbrekende kolommen in de lijst '"+CONFIG.listName+"': "+missing.join(", ")+". Maak deze aan als 'Eén regel tekst' (behalve Description, FieldsJson en MessagesJson = 'Meerdere regels tekst', en Archived = 'Ja/Nee').");
   COL.Followers = byName["followers"] || byDisplay["followers"] || null;
 }
