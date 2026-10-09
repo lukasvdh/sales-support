@@ -122,7 +122,7 @@ const NEEDED=["Ref","Category","Subcategory","Status","Priority","Assignee","Ind
    Voeg hier extra aliassen toe als er in de toekomst opnieuw een kolom
    hernoemd wordt — dan hoeft de code niet aangepast te worden. */
 const COL_ALIASES = {
-  Indiener:    ["indiener","author","author0","submitter","ingediend door","indiener0"],
+  Indiener:    ["indiener","submitter","ingediend door","indiener0"],
   Assignee:    ["assignee","behandelaar","toegewezen aan","assigned to"],
   Category:    ["category","categorie"],
   Subcategory: ["subcategory","subcategorie","onderdeel"],
