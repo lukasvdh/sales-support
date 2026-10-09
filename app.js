@@ -122,7 +122,7 @@ const NEEDED=["Ref","Category","Subcategory","Status","Priority","Assignee","Ind
    Voeg hier extra aliassen toe als er in de toekomst opnieuw een kolom
    hernoemd wordt — dan hoeft de code niet aangepast te worden. */
 const COL_ALIASES = {
-  Indiener:    ["indiener","submitter","ingediend door","indiener0"],
+  Indiener:    ["indiener","indienernaam","submitter","ingediend door","indiener0","indiener1"],
   Assignee:    ["assignee","behandelaar","toegewezen aan","assigned to"],
   Category:    ["category","categorie"],
   Subcategory: ["subcategory","subcategorie","onderdeel"],
@@ -136,9 +136,24 @@ const COL_ALIASES = {
   Archived:    ["archived","gearchiveerd"]
 };
 async function resolveColumns(){
-  const d=await graph(`/sites/${SITE_ID}/lists/${LIST_ID}/columns?$select=name,displayName&$top=250`);
+  const d=await graph(`/sites/${SITE_ID}/lists/${LIST_ID}/columns?$select=name,displayName,readOnly&$top=250`);
+  /* Ingebouwde SharePoint-systeemkolommen die read-only zijn en nooit als
+     custom kolom gematcht mogen worden. Als een systeemkolom hernoemd is
+     (bv. Author → "Indiener") zou de app er anders naar proberen te
+     schrijven en een 403 krijgen. */
+  const SYSTEM_READONLY=new Set(["author","editor","created","modified",
+    "_uiversionstring","_uiversion","contenttypeid","_moderationstatus",
+    "_moderationcomments","fileleafref","filesystemobjtype","_compliancetag",
+    "_compliancetagwrittentime","_compliancetaguserid"]);
   const byName={}, byDisplay={};
-  d.value.forEach(c=>{ if(c.name) byName[c.name.toLowerCase()]=c.name; if(c.displayName) byDisplay[c.displayName.toLowerCase()]=c.name; });
+  d.value.forEach(c=>{
+    if(!c.name) return;
+    const lc=c.name.toLowerCase();
+    // Sla read-only systeemkolommen over zodat ze nooit per ongeluk matchen
+    if(SYSTEM_READONLY.has(lc)) return;
+    byName[lc]=c.name;
+    if(c.displayName) byDisplay[c.displayName.toLowerCase()]=c.name;
+  });
   COL={ Title:"Title" };
   const missing=[];
   NEEDED.forEach(n=>{
