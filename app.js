@@ -66,7 +66,7 @@ const SCOPES=["User.Read","Sites.ReadWrite.All","Files.ReadWrite.All"];
 /* ===================== STATE ===================== */
 let msalInstance=null, account=null, currentUser=null;
 let adminEmails=[]; // e-mailadressen van beheerders uit CONFIG
-let SITE_ID=null, LIST_ID=null, DRIVE_ID=null, COL={};
+let SITE_ID=null, LIST_ID=null, DRIVE_ID=null, COL={}, READONLY_COLS=new Set();
 let tickets=[], view="dashboard", currentId=null, detailTicket=null;
 let newCat=null, curSchema=null, newFiles=[], replyFiles=[], replyInternal=false, saving=false;
 let filter={ q:"",category:"",subcategory:"",status:"",assignee:"",special:"" };
@@ -122,7 +122,7 @@ const NEEDED=["Ref","Category","Subcategory","Status","Priority","Assignee","Ind
    Voeg hier extra aliassen toe als er in de toekomst opnieuw een kolom
    hernoemd wordt — dan hoeft de code niet aangepast te worden. */
 const COL_ALIASES = {
-  Indiener:    ["indiener","indienernaam","submitter","ingediend door","indiener0","indiener1"],
+  Indiener:    ["indiener","indienernaam","submitter","ingediend door","indiener0","indiener1","author","author0"],
   Assignee:    ["assignee","behandelaar","toegewezen aan","assigned to"],
   Category:    ["category","categorie"],
   Subcategory: ["subcategory","subcategorie","onderdeel"],
@@ -137,22 +137,16 @@ const COL_ALIASES = {
 };
 async function resolveColumns(){
   const d=await graph(`/sites/${SITE_ID}/lists/${LIST_ID}/columns?$select=name,displayName,readOnly&$top=250`);
-  /* Ingebouwde SharePoint-systeemkolommen die read-only zijn en nooit als
-     custom kolom gematcht mogen worden. Als een systeemkolom hernoemd is
-     (bv. Author → "Indiener") zou de app er anders naar proberen te
-     schrijven en een 403 krijgen. */
-  const SYSTEM_READONLY=new Set(["author","editor","created","modified",
-    "_uiversionstring","_uiversion","contenttypeid","_moderationstatus",
-    "_moderationcomments","fileleafref","filesystemobjtype","_compliancetag",
-    "_compliancetagwrittentime","_compliancetaguserid"]);
+  /* Bouw twee lookup-maps: op interne naam en op weergavenaam.
+     Houd apart bij welke interne namen read-only zijn (bv. Author, Editor)
+     zodat we er later niet naar proberen te schrijven. */
   const byName={}, byDisplay={};
+  READONLY_COLS=new Set();
   d.value.forEach(c=>{
     if(!c.name) return;
-    const lc=c.name.toLowerCase();
-    // Sla read-only systeemkolommen over zodat ze nooit per ongeluk matchen
-    if(SYSTEM_READONLY.has(lc)) return;
-    byName[lc]=c.name;
+    byName[c.name.toLowerCase()]=c.name;
     if(c.displayName) byDisplay[c.displayName.toLowerCase()]=c.name;
+    if(c.readOnly) READONLY_COLS.add(c.name);
   });
   COL={ Title:"Title" };
   const missing=[];
@@ -495,7 +489,9 @@ async function saveTicket(){
     const fieldsObj={};
     fieldsObj[COL.Title]=subject; fieldsObj[COL.Ref]=ref; fieldsObj[COL.Category]=newCat; fieldsObj[COL.Subcategory]=sub;
     fieldsObj[COL.Status]="open"; fieldsObj[COL.Priority]=document.getElementById("f_prio").value;
-    fieldsObj[COL.Assignee]=assignee; fieldsObj[COL.Indiener]=currentUser.name; fieldsObj[COL.OwnerUpn]=currentUser.upn;
+    fieldsObj[COL.Assignee]=assignee; fieldsObj[COL.OwnerUpn]=currentUser.upn;
+    // Schrijf Indiener alleen als het een custom kolom is (niet de read-only Author systeemkolom)
+    if(COL.Indiener && !READONLY_COLS.has(COL.Indiener)) fieldsObj[COL.Indiener]=currentUser.name;
     fieldsObj[COL.Description]=description; fieldsObj[COL.FieldsJson]=JSON.stringify(fields);
     fieldsObj[COL.MessagesJson]=JSON.stringify(messages); fieldsObj[COL.Archived]=false;
     if(COL.Followers) fieldsObj[COL.Followers]=JSON.stringify([]);
