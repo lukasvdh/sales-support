@@ -445,6 +445,15 @@ function onSubcatChange(){
   curSchema=FORMS[newCat][sub];
   document.getElementById("dynFields").innerHTML=(curSchema.infobox||"")+curSchema.fields.map(fieldHTML).join("");
   document.getElementById("dynArea").classList.remove("hidden"); document.getElementById("stepHint").classList.add("hidden"); updateConditionals();
+  // Auto-assign: Verkoop + Artikelen aanmaken → Yana Verspreet
+  if(newCat==="Verkoop" && sub==="Artikelen aanmaken"){
+    const assignSel=document.getElementById("f_assignee");
+    if(assignSel){
+      const match=[...assignSel.options].find(o=>o.value==="Yana Verspreet");
+      if(match) assignSel.value="Yana Verspreet";
+    }
+  }
+
   const first=curSchema.fields.find(f=>!f.showIf); const el=first&&document.getElementById("dyn_"+first.k); if(el)setTimeout(()=>el.focus(),40);
 }
 function fieldHTML(f){
