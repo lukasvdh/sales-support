@@ -361,13 +361,15 @@ function quick(type,v){ if(document.getElementById("sbScrim"))toggleSidebar(fals
 /* ===================== DASHBOARD / LIST / ARCHIVE ===================== */
 function renderDashboard(){
   const c=counts(), total=visibleTickets().length;
-  const active=visibleTickets().filter(t=>t.status==="open"||t.status==="progress").sort((a,b)=>b.createdAt-a.createdAt).slice(0,6);
+  const maxActive=listMode==="list"?15:6;
+  const active=visibleTickets().filter(t=>t.status==="open"||t.status==="progress").sort((a,b)=>b.createdAt-a.createdAt).slice(0,maxActive);
+  const ticketContent=active.length?(listMode==="list"?listTable(active):`<div class="card-grid">${active.map(tcard).join("")}</div>`):emptyBox(total,!isAdmin());
   document.getElementById("view").innerHTML=`
     <div class="page-head"><div><h2>Dashboard</h2><div class="sub">${isAdmin()?`${total} ticket${total===1?"":"s"} totaal`:`Je hebt ${total} ticket${total===1?"":"s"} ingediend`}</div></div>
       <button class="btn btn-dark" onclick="openNew()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nieuw Ticket</button></div>
     <div class="stat-grid">${statCard("inbox",c.open,"Open","var(--st-open)","var(--st-open-bg)")}${statCard("loop",c.progress,"In Behandeling","var(--st-prog)","var(--st-prog-bg)")}${statCard("check",c.done,"Opgelost","var(--st-done)","var(--st-done-bg)")}${statCard("x",c.closed,"Gesloten","var(--st-closed)","var(--st-closed-bg)")}</div>
-    <div class="section-head"><h3>Actieve tickets</h3>${total?`<span class="link" onclick="go('list')">Bekijk alle →</span>`:""}</div>
-    ${active.length?`<div class="card-grid">${active.map(tcard).join("")}</div>`:emptyBox(total,!isAdmin())}`;
+    <div class="section-head"><h3>Actieve tickets</h3><div class="section-head-actions">${viewToggle()}${total?`<span class="link" onclick="go('list')">Bekijk alle →</span>`:""}</div></div>
+    ${ticketContent}`;
 }
 function statCard(icon,n,label,color,bg){ const ic={inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.5Z"/>',loop:'<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',check:'<path d="M21.8 10A10 10 0 1 1 17 3.3"/><path d="m9 11 3 3L22 4"/>',x:'<circle cx="12" cy="12" r="9"/><path d="m15 9-6 6m0-6 6 6"/>'}[icon]; return `<div class="stat"><div class="ic" style="background:${bg};color:${color}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${ic}</svg></div><div><div class="n">${n}</div><div class="l">${label}</div></div></div>`; }
 function tcard(t){
@@ -383,7 +385,7 @@ function tcard(t){
       <span class="ti">${ago(t.createdAt)}</span></div></div>`;
 }
 function emptyBox(total,isUser){ return `<div class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg><h3>${total?"Geen actieve tickets":(isUser?"Je hebt nog geen tickets":"Nog geen tickets")}</h3><p>${total?"Alle tickets zijn opgelost of gesloten.":"Maak een ticket aan om te starten."}</p></div>`; }
-function setListMode(m){ listMode=m; try{localStorage.setItem("vrp_listMode",m)}catch(e){} if(view==="list")renderList(); else if(view==="archive")renderArchive(); }
+function setListMode(m){ listMode=m; try{localStorage.setItem("vrp_listMode",m)}catch(e){} if(view==="dashboard")renderDashboard(); else if(view==="list")renderList(); else if(view==="archive")renderArchive(); }
 function viewToggle(){
   return `<div class="view-toggle"><button class="vt-btn ${listMode==="cards"?"active":""}" onclick="setListMode('cards')" title="Kaartweergave"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button><button class="vt-btn ${listMode==="list"?"active":""}" onclick="setListMode('list')" title="Lijstweergave"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button></div>`;
 }
