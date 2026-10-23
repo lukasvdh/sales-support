@@ -70,6 +70,7 @@ let SITE_ID=null, LIST_ID=null, DRIVE_ID=null, COL={}, READONLY_COLS=new Set();
 let tickets=[], view="dashboard", currentId=null, detailTicket=null;
 let newCat=null, curSchema=null, newFiles=[], replyFiles=[], replyInternal=false, saving=false;
 let filter={ q:"",category:"",subcategory:"",status:"",assignee:"",special:"" };
+let listMode=localStorage.getItem("vrp_listMode")||"cards";
 
 /* ===================== HELPERS ===================== */
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -382,6 +383,24 @@ function tcard(t){
       <span class="ti">${ago(t.createdAt)}</span></div></div>`;
 }
 function emptyBox(total,isUser){ return `<div class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg><h3>${total?"Geen actieve tickets":(isUser?"Je hebt nog geen tickets":"Nog geen tickets")}</h3><p>${total?"Alle tickets zijn opgelost of gesloten.":"Maak een ticket aan om te starten."}</p></div>`; }
+function setListMode(m){ listMode=m; try{localStorage.setItem("vrp_listMode",m)}catch(e){} if(view==="list")renderList(); else if(view==="archive")renderArchive(); }
+function viewToggle(){
+  return `<div class="view-toggle"><button class="vt-btn ${listMode==="cards"?"active":""}" onclick="setListMode('cards')" title="Kaartweergave"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button><button class="vt-btn ${listMode==="list"?"active":""}" onclick="setListMode('list')" title="Lijstweergave"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button></div>`;
+}
+function trow(t){
+  const cat=CAT[t.category]||CAT.Verkoop, st=STATUS[t.status]||STATUS.open, pr=PRIO[t.priority]||PRIO.mid;
+  return `<tr class="trow ${t.archived?"arch":""}" onclick="openDetail('${t.itemId}')">
+    <td class="tr-ref">${esc(t.ref||"")}</td>
+    <td class="tr-subject"><span class="tr-subj-text">${esc(t.subject)}</span></td>
+    <td><span class="tag sm" style="color:${cat.color};background:${cat.bg}">${cat.label}</span></td>
+    <td><span class="badge sm" style="color:${st.color};background:${st.bg}">${st.label}</span></td>
+    <td><span class="tag sm" style="color:${pr.color};background:${pr.bg}">${pr.label}</span></td>
+    <td class="tr-who">${esc(firstName(t.assignee))}</td>
+    <td class="tr-time">${ago(t.createdAt)}</td></tr>`;
+}
+function listTable(items){
+  return `<div class="ttable-wrap"><table class="ttable"><thead><tr><th>Ref</th><th>Onderwerp</th><th>Categorie</th><th>Status</th><th>Prioriteit</th><th>Behandelaar</th><th>Datum</th></tr></thead><tbody>${items.map(trow).join("")}</tbody></table></div>`;
+}
 function renderListView(){
   const subOpts=["Alle onderdelen",...ALL_SUBS];
   document.getElementById("view").innerHTML=`
@@ -392,6 +411,7 @@ function renderListView(){
       <select class="filter" id="fSub" onchange="filter.subcategory=this.value==='Alle onderdelen'?'':this.value;renderList()">${subOpts.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="filter" id="fStatus" onchange="filter.status=this.value;renderList()"><option value="">Alle statussen</option>${Object.keys(STATUS).map(k=>`<option value="${k}">${STATUS[k].label}</option>`).join("")}</select>
       <select class="filter" id="fAssignee" onchange="filter.assignee=this.value;renderList()"><option value="">Alle behandelaars</option>${[...new Set([...teamNames(),...visibleTickets().map(t=>t.assignee||"Niet toegewezen")])].map(n=>`<option>${esc(n)}</option>`).join("")}</select>
+      ${viewToggle()}
     </div><div id="listResults"></div>`;
   document.getElementById("q").value=filter.q; document.getElementById("fCat").value=filter.category; document.getElementById("fSub").value=filter.subcategory||"Alle onderdelen"; document.getElementById("fStatus").value=filter.status; document.getElementById("fAssignee").value=filter.assignee;
   renderList();
@@ -415,12 +435,15 @@ function renderList(){
   if(filter.subcategory)chips.push(`<span class="activefilter">${esc(filter.subcategory)}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" onclick="filter.subcategory='';document.getElementById('fSub').value='Alle onderdelen';renderList()"><path d="M18 6 6 18M6 6l12 12"/></svg></span>`);
   const chipRow=chips.length?`<div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap">${chips.join("")}</div>`:"";
   const sub=document.getElementById("listSub"); if(sub)sub.textContent=`${items.length} ticket${items.length===1?"":"s"}`;
-  document.getElementById("listResults").innerHTML=chipRow+(items.length?`<div class="card-grid">${items.map(tcard).join("")}</div>`:`<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><h3>Geen tickets gevonden</h3><p>Pas je filters of zoekopdracht aan.</p></div>`);
+  const content=items.length?(listMode==="list"?listTable(items):`<div class="card-grid">${items.map(tcard).join("")}</div>`):`<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><h3>Geen tickets gevonden</h3><p>Pas je filters of zoekopdracht aan.</p></div>`;
+  document.getElementById("listResults").innerHTML=chipRow+content;
+  document.querySelectorAll(".vt-btn").forEach(b=>{b.classList.toggle("active",b.title===(listMode==="cards"?"Kaartweergave":"Lijstweergave"))});
 }
 function renderArchive(){
   const items=archivedTickets().sort((a,b)=>b.createdAt-a.createdAt);
-  document.getElementById("view").innerHTML=`<div class="page-head"><div><h2>Archief</h2><div class="sub">${items.length} gearchiveerd ticket${items.length===1?"":"s"} · data blijft volledig bewaard</div></div></div>
-    ${items.length?`<div class="card-grid">${items.map(tcard).join("")}</div>`:`<div class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg><h3>Archief is leeg</h3><p>Gearchiveerde tickets verschijnen hier.</p></div>`}`;
+  const content=items.length?(listMode==="list"?listTable(items):`<div class="card-grid">${items.map(tcard).join("")}</div>`):`<div class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg><h3>Archief is leeg</h3><p>Gearchiveerde tickets verschijnen hier.</p></div>`;
+  document.getElementById("view").innerHTML=`<div class="page-head"><div><h2>Archief</h2><div class="sub">${items.length} gearchiveerd ticket${items.length===1?"":"s"} · data blijft volledig bewaard</div></div>${viewToggle()}</div>
+    ${content}`;
 }
 
 /* ===================== NEW TICKET ===================== */
