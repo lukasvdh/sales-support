@@ -97,6 +97,7 @@ body { background:var(--bg); color:var(--ink); font-family:var(--font); font-siz
 /* ---- SECTION / CARD ---- */
 .section-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
 .section-head h3 { font-size:17px; font-weight:700; letter-spacing:-.3px; }
+.section-head-actions { display:flex; align-items:center; gap:12px; }
 .link { color:var(--primary-dark); font-size:13px; font-weight:600; cursor:pointer; }
 .link:hover { text-decoration:underline; }
 .card-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
