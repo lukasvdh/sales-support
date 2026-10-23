@@ -361,8 +361,8 @@ function quick(type,v){ if(document.getElementById("sbScrim"))toggleSidebar(fals
 /* ===================== DASHBOARD / LIST / ARCHIVE ===================== */
 function renderDashboard(){
   const c=counts(), total=visibleTickets().length;
-  const maxActive=listMode==="list"?15:6;
-  const active=visibleTickets().filter(t=>t.status==="open"||t.status==="progress").sort((a,b)=>b.createdAt-a.createdAt).slice(0,maxActive);
+  const allActive=visibleTickets().filter(t=>t.status==="open"||t.status==="progress").sort((a,b)=>b.createdAt-a.createdAt);
+  const active=listMode==="list"?allActive:allActive.slice(0,6);
   const ticketContent=active.length?(listMode==="list"?listTable(active):`<div class="card-grid">${active.map(tcard).join("")}</div>`):emptyBox(total,!isAdmin());
   document.getElementById("view").innerHTML=`
     <div class="page-head"><div><h2>Dashboard</h2><div class="sub">${isAdmin()?`${total} ticket${total===1?"":"s"} totaal`:`Je hebt ${total} ticket${total===1?"":"s"} ingediend`}</div></div>
