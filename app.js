@@ -507,7 +507,13 @@ async function saveTicket(){
     if(COL.Indiener && !READONLY_COLS.has(COL.Indiener)) fieldsObj[COL.Indiener]=currentUser.name;
     fieldsObj[COL.Description]=description; fieldsObj[COL.FieldsJson]=JSON.stringify(fields);
     fieldsObj[COL.MessagesJson]=JSON.stringify(messages); fieldsObj[COL.Archived]=false;
-    if(COL.Followers) fieldsObj[COL.Followers]=JSON.stringify([]);
+    // Auto-assign: voeg Yana toe als volger zodat het ticket voor haar zichtbaar is
+    const autoFollowers=[];
+    if(assignee==="Yana Verspreet"){
+      const yanaEmail=assigneeEmail("Yana Verspreet");
+      if(yanaEmail) autoFollowers.push({upn:yanaEmail, name:"Yana Verspreet"});
+    }
+    if(COL.Followers) fieldsObj[COL.Followers]=JSON.stringify(autoFollowers);
     const t=await createTicketItem(fieldsObj);
     tickets.push(t);
     console.log("[saveTicket] Ticket aangemaakt, notifyNewTicket wordt aangeroepen. adminEmails:",adminEmails);
