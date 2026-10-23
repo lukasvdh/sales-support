@@ -488,7 +488,11 @@ async function saveTicket(){
   const year=new Date().getFullYear();
   const nums=tickets.filter(t=>t.ref&&t.ref.startsWith("VRP-"+year)).map(t=>parseInt((t.ref.split("-")[2]||"0"),10)||0);
   const ref=`VRP-${year}-${String((nums.length?Math.max(...nums):0)+1).padStart(4,"0")}`;
-  const assignee=isAdmin()?document.getElementById("f_assignee").value:"Niet toegewezen";
+  let assignee=isAdmin()?document.getElementById("f_assignee").value:"Niet toegewezen";
+  // Auto-assign: Verkoop + Artikelen aanmaken → Yana Verspreet
+  if(newCat==="Verkoop" && sub==="Artikelen aanmaken" && assignee==="Niet toegewezen"){
+    assignee="Yana Verspreet";
+  }
 
   saving=true; const btn=document.getElementById("saveBtn"); btn.disabled=true; btn.textContent="Opslaan…";
   try{
@@ -886,7 +890,7 @@ const DEFAULT_SETTINGS={
     {name:"Lukas Vanderheyden", email:"lukas@verpa.be"},
     {name:"Aniel Haeyaert",     email:"aniel@verpa.be"},
     {name:"Sten Huygens",       email:"sten.huygens@verpa.be"},
-    {name:"Yana Verspreet",     email:""}
+    {name:"Yana Verspreet",     email:"yana@verpa.be"}
   ]
 };
 let SETTINGS=null, settingsETag=null, settingsLoadedAt=0, settingsLoadError=false, settingsDraft=null, settingsSaving=false;
